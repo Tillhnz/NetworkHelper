@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .. import audit, detect, portscan, scheduler, state
+from .. import audit, detect, exposure, portscan, scheduler, state
 from ..database import get_db
-from ..models import ExpectedPort, Incident, PortFinding, SiteCheck, User
+from ..models import ExpectedPort, Exposure, Incident, PortFinding, SiteCheck, User
 from ..security import current_user, require_admin
 from ..server_settings import HOST_RE
 
@@ -211,3 +211,54 @@ def remove_block(block_id: int, admin: User = Depends(require_admin), db: Sessio
     db.commit()
     block_cache.invalidate()
     audit.record(db, admin.email, "block.remove", row.cidr)
+
+
+# ---------- Treffer-Prüfung: waren Angriffe erfolgreich? ----------
+
+def _exposure_out(e: Exposure) -> dict:
+    probe = next((p for p in exposure.PROBES if p.key == e.kind), None)
+    return {"id": e.id, "host": e.host, "path": e.path, "kind": e.kind, "label": e.label, "severity": e.severity, "result": e.result,
+            "evidence": e.evidence, "first_seen": e.first_seen.isoformat(), "last_seen": e.last_seen.isoformat(),
+            "fixed_at": e.fixed_at.isoformat() if e.fixed_at else None, "attacked": e.attacked, "attacker_ips": e.attacker_ips,
+            "acknowledged": e.acknowledged, "fix": probe.fix if probe else "Datei vom Server entfernen oder den Pfad im Proxy Manager sperren."}
+
+
+@router.get("/exposure")
+def exposure_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from ..config import settings
+    last = state.get(db, "exposure_last") or {}
+    rank = {"crit": 0, "warn": 1, "info": 2}
+    rows = sorted(db.scalars(select(Exposure)).all(),
+                  key=lambda e: (e.fixed_at is not None, e.acknowledged, rank.get(e.severity, 3), -e.attacked, e.host, e.path))
+    verdicts = {(h, r["path"]): r for h, hv in (last.get("hosts") or {}).items() for r in hv.get("results", [])}
+    hits = []
+    for h in exposure.log_hits(db)[:200]:
+        r = verdicts.get((h["host"], h["path"]))
+        hits.append({**h, "last": h["last"].isoformat() if h["last"] else None,
+                     "result": r["result"] if r else None, "detail": r["detail"] if r else None})
+    hosts = [{"host": h, "catchall": v.get("catchall"), "error": v.get("error"), "counts": v.get("counts", {})}
+             for h, v in sorted((last.get("hosts") or {}).items())]
+    return {"enabled": settings.exposure_enabled, "running": scheduler.JOBS["exposure"].running,
+            "last": {k: last.get(k) for k in ("started", "finished", "probes")} if last else None,
+            "hosts": hosts, "findings": [_exposure_out(e) for e in rows if e.fixed_at is None or (datetime.utcnow() - e.fixed_at).days < 30],
+            "log_hits": hits, "probes": [{"key": p.key, "label": p.label, "paths": list(p.paths), "severity": p.severity} for p in exposure.PROBES]}
+
+
+@router.post("/exposure/check", status_code=202)
+def exposure_check(admin: User = Depends(require_admin)):
+    return {"started": scheduler.trigger("exposure")}
+
+
+class AckIn(BaseModel):
+    acknowledged: bool
+
+
+@router.put("/exposure/{eid}")
+def exposure_ack(eid: int, data: AckIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    row = db.get(Exposure, eid)
+    if row is None:
+        raise HTTPException(404, "Nicht gefunden")
+    row.acknowledged = data.acknowledged
+    db.commit()
+    audit.record(db, admin.email, "exposure.ack" if data.acknowledged else "exposure.unack", f"{row.host}{row.path}"[:290])
+    return _exposure_out(row)

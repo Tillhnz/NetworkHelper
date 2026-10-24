@@ -128,9 +128,11 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
         db.commit()
         return []
 
+    from . import exposure, publicip
+    own_ip = publicip.info(db).get("ip")
     by_ip: dict[str, list[AccessEvent]] = defaultdict(list)
     for e in events:
-        if is_public(e.ip) and not e.blocked:
+        if is_public(e.ip) and not e.blocked and not exposure.is_own_check(e.ip, e.user_agent, own_ip):
             by_ip[e.ip].append(e)
     if not by_ip:
         db.commit()

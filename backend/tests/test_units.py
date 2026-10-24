@@ -105,3 +105,26 @@ def test_explain_reasons():
 def test_fritzbox_own_ports_named():
     from app.portscan import DEFAULT_PORTS, SERVICES
     assert "TR-069" in SERVICES[8089] and 8089 in DEFAULT_PORTS
+
+
+def test_exposure_verdicts():
+    from app.exposure import PROBE_BY_PATH, _fingerprint, _mask_env, is_own_check, verdict
+    env = "APP_NAME=demo\nDB_PASSWORD=supergeheim\nAPI_TOKEN=abc123\n"
+    masked = _mask_env(env)
+    assert "DB_PASSWORD=•••" in masked and "supergeheim" not in masked and "abc123" not in masked
+    assert _mask_env("<html><body>A=1\nB=2</body></html>") is None
+    page = "<!doctype html><html><title>Nextcloud</title><body>" + "x" * 500 + "</body></html>"
+    base = _fingerprint(page)
+
+    def res(status, text, ctype="text/plain"):
+        return {"status": status, "text": text, "raw": text.encode(), "ctype": ctype, "location": ""}
+    assert verdict(res(200, env), PROBE_BY_PATH["/.env"], base)[0] == "exposed"
+    assert verdict(res(200, page, "text/html"), PROBE_BY_PATH["/.env"], base)[0] == "catchall"
+    assert verdict(res(403, ""), PROBE_BY_PATH["/.env"], base)[0] == "protected"
+    assert verdict(res(404, ""), PROBE_BY_PATH["/.git/config"], None)[0] == "missing"
+    assert verdict(res(200, "[core]\n\trepositoryformatversion = 0\n"), PROBE_BY_PATH["/.git/config"], base)[0] == "exposed"
+    assert verdict(res(200, "random bytes here", "application/octet-stream"), None, base)[0] == "unclear"
+    assert verdict({"status": None, "text": "", "raw": b"", "ctype": "", "location": "", "error": "ConnectError"}, None, base)[0] == "error"
+    assert is_own_check("192.168.1.10", "NetworkHelper-Exposure-Check/1.0", None)
+    assert is_own_check("84.1.2.3", "NetworkHelper-Exposure-Check/1.0", "84.1.2.3")
+    assert not is_own_check("45.1.2.3", "NetworkHelper-Exposure-Check/1.0", "84.1.2.3")  # Tarnung zählt nicht

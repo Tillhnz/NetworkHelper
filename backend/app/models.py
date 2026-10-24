@@ -152,6 +152,27 @@ class SiteCheck(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class Exposure(Base):
+    """Bestätigt lesbare Geheimnisse oder Admin-Oberflächen auf eigenen Hosts (Selbsttest)."""
+    __tablename__ = "exposures"
+    __table_args__ = (Index("ix_exposure_host_path", "host", "path", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host: Mapped[str] = mapped_column(String(253))
+    path: Mapped[str] = mapped_column(String(300))
+    kind: Mapped[str] = mapped_column(String(20), default="other")
+    label: Mapped[str] = mapped_column(String(120), default="")
+    severity: Mapped[str] = mapped_column(String(6), default="warn")  # info | warn | crit
+    result: Mapped[str] = mapped_column(String(10), default="exposed")  # exposed | unclear
+    evidence: Mapped[str | None] = mapped_column(String(300), nullable=True)  # nur Schlüsselnamen, Werte geschwärzt
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fixed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    attacked: Mapped[int] = mapped_column(Integer, default=0)  # erfolgreiche fremde Abrufe laut Protokoll
+    attacker_ips: Mapped[int] = mapped_column(Integer, default=0)
+    acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class Incident(Base):
     __tablename__ = "incidents"
     __table_args__ = (Index("ix_incident_ip_kind", "ip", "kind"),)

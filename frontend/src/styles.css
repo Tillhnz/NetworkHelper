@@ -949,3 +949,35 @@ h2 .term, h3 .term { text-decoration-thickness: 2px; }
 .panel .why-group-head h2{margin:0;font-size:1.35rem;line-height:1.2}
 .panel .why-group-head h2 + .muted{margin-top:.2rem}
 .map-side .hbars + p,.map-side p{margin-top:.9rem}
+
+/* ---------- Angriffe gelungen? ---------- */
+.verdict{border-left:4px solid var(--line)}
+.verdict-ok{border-left-color:var(--celeste)}
+.verdict-warn{border-left-color:var(--amber)}
+.verdict-crit{border-left-color:var(--signal);background:linear-gradient(90deg,rgba(255,107,107,.10),transparent 60%),var(--panel)}
+.verdict-info{border-left-color:var(--sky)}
+.panel.verdict h2{margin:0 0 .5rem;line-height:1.2}
+.verdict p{margin:0;max-width:60rem}
+.exposure-list{list-style:none;margin:0;padding:0;display:grid;gap:.75rem}
+.exposure{background:var(--panel-2);border-radius:10px;padding:.8rem .95rem;border-left:4px solid var(--amber)}
+.exposure.sev-crit{border-left-color:var(--signal)}
+.exposure.sev-info{border-left-color:var(--mute)}
+.exposure.acked{opacity:.7}
+.exposure p{margin:.35rem 0 0}
+.exposure-head{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.exposure-url{display:inline-block;margin-top:.3rem;overflow-wrap:anywhere}
+.exposure-hosts li{display:flex;gap:.5rem;align-items:center;padding:.45rem 0;border-bottom:1px solid var(--line)}
+.exposure-hosts li:last-child{border-bottom:0}
+.probe-list li{padding:.3rem 0}
+.probe-list .mono{font-size:.78rem;overflow-wrap:anywhere}
+ul.bullet{padding-left:1.1rem;margin:.3rem 0 0}
+ul.bullet li{margin:.3rem 0}
+.tone-crit{color:var(--signal)}
+.hit-url{overflow-wrap:anywhere;min-width:9rem}
+@media (max-width: 600px){.hit-url .mono{word-break:break-all}}
+.hits-table td{white-space:normal}
+@media (max-width: 600px){
+  .hits-table thead{display:none}
+  .hits-table tr{display:block;padding:.55rem 0;border-bottom:1px solid var(--line)}
+  .hits-table td{display:block;border:0;padding:.1rem 0}
+}

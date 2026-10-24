@@ -98,6 +98,10 @@ export const GLOSSARY = {
     title: "Programm (User-Agent)",
     text: "Womit jemand zugreift, zum Beispiel ein Browser, die Nextcloud-App oder ein Skript. Angriffswerkzeuge verraten sich hier oft selbst.",
   },
+  attack_hit: {
+    title: "Ist ein Angriff gelungen?",
+    text: "Angreifer probieren bei jedem Server Adressen wie /.env oder /.git/config aus, weil dort oft Passwörter liegen. Bekommen sie „200 OK“, kann das ein Treffer sein, oder die App zeigt einfach ihre Startseite. NetworkHelper ruft diese Adressen deshalb selbst auf und prüft, ob wirklich eine solche Datei ausgeliefert wird. Nur dann gilt der Angriff als gelungen.",
+  },
   geo_map: {
     title: "Die Herkunftskarte",
     text: "Jeder Punkt ist ein Ort, von dem aus deine Seiten aufgerufen wurden. Je größer, desto mehr Zugriffe. Die Farbe zeigt, warum: Türkis bist du oder deine Nutzer, Blau sind nützliche Dienste wie Let's Encrypt oder Suchmaschinen, Lila sind automatische Abfragen aus dem Internet und Rot sind Angriffsversuche. Die Linien führen zu deinem Server. Der Standort einer IP-Adresse ist nur eine Schätzung.",
@@ -176,7 +180,7 @@ export const INTROS = {
   },
   security: {
     title: "Wie gut bist du geschützt?",
-    text: "Welche Türen (Ports) von außen offen sind und wie du sie in der FRITZ!Box schließt, eine Checkliste zum Absichern deines Routers, ob deine Zertifikate gültig und gut eingerichtet sind, welche verdächtigen Zugriffe es gab und welche Adressen gesperrt sind. Rot heißt: bitte ansehen. Gelb heißt: verbesserbar.",
+    text: "Welche Türen (Ports) von außen offen sind und wie du sie in der FRITZ!Box schließt, eine Checkliste zum Absichern deines Routers, ob deine Zertifikate gültig und gut eingerichtet sind, welche verdächtigen Zugriffe es gab, ob ein Angriff tatsächlich etwas erbeuten konnte und welche Adressen gesperrt sind. Rot heißt: bitte ansehen. Gelb heißt: verbesserbar.",
   },
   uptime: {
     title: "Sind deine Dienste erreichbar?",

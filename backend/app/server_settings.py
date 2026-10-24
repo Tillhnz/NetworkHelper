@@ -54,6 +54,8 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "auto_block": ("bool", "security", False),
     "auto_block_hours": ("int:1:8760", "security", False),
     "site_check_interval_h": ("int:1:168", "security", False),
+    "exposure_enabled": ("bool", "security", False),
+    "exposure_interval_h": ("int:1:168", "security", False),
     "monitor_interval_s": ("int:20:3600", "security", False),
 }
 HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?$")

@@ -367,6 +367,8 @@ const SECURITY = [
   { key: "scan_targets", type: "text", label: "Weitere Ziele", wide: true, placeholder: "z. B. vps.example.de", hint: "Die eigene öffentliche IP ist immer dabei." },
   { key: "shodan_enabled", type: "bool", label: "Shodan InternetDB fragen (sendet nur die öffentliche IP)" },
   { key: "site_check_interval_h", type: "number", label: "Zertifikate prüfen alle (Stunden)", min: 1, max: 168 },
+  { key: "exposure_enabled", type: "bool", label: "Selbsttest auf lesbare Geheimnisse (.env, .git, Sicherungen …)", hint: "Ruft bei deinen eigenen Seiten die Adressen auf, die Angreifer ausprobieren, und prüft den Inhalt. Nur GET-Anfragen, nichts wird gespeichert." },
+  { key: "exposure_interval_h", type: "number", label: "Selbsttest alle (Stunden)", min: 1, max: 168 },
   { key: "monitor_interval_s", type: "number", label: "Erreichbarkeit prüfen alle (Sekunden)", min: 20, max: 3600 },
   { key: "detect_enabled", type: "bool", label: "Auffällige Zugriffe erkennen" },
   { key: "auto_block", type: "bool", label: "Angreifer automatisch sperren", hint: "Bei Anmeldeversuchen, Angriffswerkzeugen und vielen Schwachstellen-Suchen. Wirkt nur, wenn ein Agent die Sperrliste umsetzt." },

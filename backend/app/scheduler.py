@@ -10,7 +10,7 @@ from typing import Callable
 
 from sqlalchemy import delete, select
 
-from . import detect, dns, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
+from . import detect, dns, exposure, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
 from .config import settings
 from .database import SessionLocal
 from .models import AccessEvent, Agent, Alert, DynRecord, Incident, MonitorResult
@@ -84,6 +84,7 @@ SLOW = [
     Job("npm_sync", dns.sync_from_npm, lambda: 600, npm.configured, delay=40),
     Job("dyndns", dns.run_dyndns, lambda: settings.dyndns_interval_min * 60, _dyndns_enabled, delay=60),
     Job("sitecheck", sitecheck.run, lambda: settings.site_check_interval_h * 3600, delay=120),
+    Job("exposure", exposure.run, lambda: settings.exposure_interval_h * 3600, lambda: settings.exposure_enabled, delay=240),
     Job("portscan", portscan.run, lambda: settings.scan_interval_h * 3600, lambda: settings.scan_enabled, delay=180),
     Job("maintenance", _maintenance, lambda: 6 * 3600, delay=5),
 ]

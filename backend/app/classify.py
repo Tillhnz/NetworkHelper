@@ -52,7 +52,7 @@ _RESEARCH_ORG = [(r"censys", "Censys"), (r"shodan", "Shodan"), (r"palo alto", "P
                  (r"internet measurement", "Internet Measurement")]
 _MONITOR = [(r"uptimerobot", "UptimeRobot"), (r"better ?uptime|betterstack", "Better Stack"), (r"pingdom", "Pingdom"),
             (r"statuscake", "StatusCake"), (r"uptime-?kuma", "Uptime Kuma"), (r"freshping", "Freshping"), (r"hetrix", "HetrixTools"),
-            (r"site24x7", "Site24x7"), (r"networkhelper-uptime", "NetworkHelper (diese App)"), (r"healthchecks", "Healthchecks"),
+            (r"site24x7", "Site24x7"), (r"networkhelper-", "NetworkHelper (diese App)"), (r"healthchecks", "Healthchecks"),
             (r"gatus", "Gatus"), (r"checkly", "Checkly")]
 _CRAWLER = [(r"googlebot|google-inspectiontool|storebot-google|adsbot-google", "Google"), (r"bingbot|bingpreview", "Bing"),
             (r"applebot", "Apple"), (r"duckduckbot|duckassistbot", "DuckDuckGo"), (r"yandex", "Yandex"), (r"baiduspider", "Baidu"),

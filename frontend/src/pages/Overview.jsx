@@ -7,7 +7,7 @@ import { Country, CountUp, Dot, EmptyState, Kpi, Pill, ScoreRing, usePoll } from
 import { InfoTip, PageIntro, Term, useHelp } from "../components/help.jsx";
 
 const LEVEL_TEXT = { ok: "Alles im grünen Bereich", warn: "Ein paar Dinge solltest du prüfen", crit: "Hier besteht Handlungsbedarf" };
-const AREA_LINK = { ports: "/security?tab=ports", sites: "/security?tab=sites", incidents: "/security?tab=incidents", uptime: "/uptime" };
+const AREA_LINK = { ports: "/security?tab=ports", sites: "/security?tab=sites", incidents: "/security?tab=incidents", exposure: "/security?tab=exposure", uptime: "/uptime" };
 
 /** Angebot für die Tour, solange sie noch nicht gemacht wurde. */
 function TourOffer() {

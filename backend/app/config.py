@@ -54,7 +54,9 @@ class Settings(BaseSettings):
     monitor_interval_s: int = 60
     retention_days: int = 30
     geoip_enabled: bool = True
-    geoip_city: bool = True  # Städtedatenbank für die Karte (rund 130 MB)
+    geoip_city: bool = True
+    exposure_enabled: bool = True  # Selbsttest: sind .env, .git usw. auf den eigenen Seiten lesbar?
+    exposure_interval_h: int = 24  # Städtedatenbank für die Karte (rund 130 MB)
 
     class Config:
         env_file = ".env"

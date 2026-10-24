@@ -49,6 +49,15 @@ def security_status(db: Session) -> dict:
                                                                        Incident.last_seen >= now - timedelta(days=1))) or 0
     if crit:
         reasons.append({"points": 10, "level": "crit", "area": "incidents", "text": f"{crit} offene kritische Vorfälle (Anmeldeversuche)"})
+    from ..models import Exposure
+    for e in db.scalars(select(Exposure).where(Exposure.fixed_at.is_(None), Exposure.acknowledged.is_(False))):
+        if e.result == "exposed":
+            pts = 40 if e.severity == "crit" else 10
+            extra = f", {e.attacked}× von Fremden abgerufen" if e.attacked else ""
+            reasons.append({"points": pts, "level": "crit" if e.severity == "crit" else "warn", "area": "exposure",
+                            "text": f"{e.label} lesbar: {e.host}{e.path}{extra}"})
+        else:
+            reasons.append({"points": 3, "level": "warn", "area": "exposure", "text": f"Unklare Datei prüfen: {e.host}{e.path}"})
     down = db.scalars(select(Monitor.name).where(Monitor.enabled.is_(True), Monitor.state == "down")).all()
     if down:
         reasons.append({"points": 10, "level": "crit", "area": "uptime", "text": f"Nicht erreichbar: {', '.join(down[:4])}"})

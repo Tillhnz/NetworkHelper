@@ -348,3 +348,47 @@ def test_map_and_visitors(client, admin):
     d = client.get("/api/access/ip/162.142.125.9", headers=admin).json()
     assert d["reason"]["category"] == "research" and d["location"]["country"] == "US"
     assert client.get("/api/access/map?range=99d", headers=admin).status_code == 422
+
+
+def test_exposure_selfcheck(client, admin, monkeypatch):
+    from app import exposure
+    from app.models import AccessEvent, Exposure, SiteCheck
+    now = datetime.utcnow()
+    page = "<!doctype html><html><title>App</title><body>" + "y" * 800 + "</body></html>"
+    files = {"/.env": ("APP_KEY=base64:xyz\nDB_PASSWORD=geheim\nMAIL_PASSWORD=x\n", "text/plain"),
+             "/backup.tar": ("\x00binär\x00daten" * 20, "application/x-tar")}
+
+    def fake_get(self, host, path):
+        if host != "leaky.example.de":
+            return {"status": 404, "text": "", "raw": b"", "ctype": "", "location": ""}
+        text, ctype = files.get(path, (page, "text/html"))
+        return {"status": 200, "text": text, "raw": text.encode(), "ctype": ctype, "location": ""}
+    monkeypatch.setattr(exposure.Fetcher, "get", fake_get)
+    with SessionLocal() as db:
+        db.add_all([SiteCheck(host="leaky.example.de", enabled=True), SiteCheck(host="tidy.example.de", enabled=True)])
+        for path, ip in [("/.env", "45.9.9.1"), ("/.env", "45.9.9.2"), ("/backup.tar", "45.9.9.3"), ("/wp-login.php", "45.9.9.3")]:
+            db.add(AccessEvent(ts=now, host="leaky.example.de", method="GET", path=path, status=200, bytes=90, ip=ip, user_agent="zgrab"))
+        db.add(AccessEvent(ts=now, host="leaky.example.de", method="GET", path="/.git/config", status=200, bytes=90, ip="192.168.1.9",
+                           user_agent=exposure.USER_AGENT))  # eigene Prüfung zählt nicht als Angriff
+        db.commit()
+        exposure.run(db)
+        rows = {e.path: e for e in db.query(Exposure).all()}
+    assert rows["/.env"].result == "exposed" and rows["/.env"].severity == "crit" and rows["/.env"].attacked == 2
+    assert "geheim" not in rows["/.env"].evidence and "DB_PASSWORD=•••" in rows["/.env"].evidence
+    assert rows["/backup.tar"].result == "unclear"
+    assert "/wp-login.php" not in rows and "/.git/config" not in rows  # liefert nur die Startseite
+    d = client.get("/api/security/exposure", headers=admin).json()
+    hits = {h["path"]: h for h in d["log_hits"]}
+    assert hits["/wp-login.php"]["result"] == "catchall" and hits["/.env"]["result"] == "exposed" and "/.git/config" not in hits
+    assert {h["host"] for h in d["hosts"]} >= {"leaky.example.de", "tidy.example.de"}
+    st = client.get("/api/overview", headers=admin).json()
+    assert any(r["area"] == "exposure" and r["level"] == "crit" for r in st["security"]["reasons"])
+    with SessionLocal() as db:
+        assert db.query(Alert).filter(Alert.kind == "exposure").count() == 1
+    # behoben: Datei weg -> Eintrag gilt als erledigt
+    files.pop("/.env")
+    with SessionLocal() as db:
+        exposure.run(db)
+        assert db.query(Exposure).filter(Exposure.path == "/.env").one().fixed_at is not None
+    eid = next(f["id"] for f in d["findings"] if f["path"] == "/backup.tar")
+    assert client.put(f"/api/security/exposure/{eid}", headers=admin, json={"acknowledged": True}).json()["acknowledged"] is True
