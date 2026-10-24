@@ -35,7 +35,7 @@ SERVICES = {
     2376: "Docker-API (TLS)", 3000: "Web-App (3000)", 3001: "Web-App (3001)", 3128: "HTTP-Proxy", 3306: "MySQL/MariaDB", 3389: "Remote Desktop",
     4443: "HTTPS (alternativ)", 5000: "Synology/Web-App", 5001: "Synology HTTPS", 5060: "SIP (Internet-Telefonie)", 5061: "SIP über TLS", 5222: "XMPP", 5353: "mDNS",
     5432: "PostgreSQL", 5555: "Android Debug", 5672: "RabbitMQ", 5900: "VNC", 5901: "VNC", 6379: "Redis", 6443: "Kubernetes-API",
-    7547: "TR-069 (Router-Fernwartung)", 8000: "Web-App (8000)", 8006: "Proxmox VE", 8007: "Proxmox Backup", 8008: "HTTP (alternativ)",
+    7547: "TR-069 (Router-Fernwartung)", 8000: "Web-App (8000)", 8006: "Proxmox VE", 8007: "Proxmox Backup", 8008: "HTTP (alternativ)", 8089: "TR-069 Anbieter-Dienste (FRITZ!Box)",
     8080: "HTTP (alternativ)", 8081: "HTTP (alternativ)", 8083: "Web-App", 8086: "InfluxDB", 8088: "Web-App", 8096: "Jellyfin",
     8123: "Home Assistant", 8181: "Web-App", 8200: "Vault", 8443: "HTTPS (alternativ)", 8448: "Matrix", 8501: "Web-App",
     8888: "Web-App (8888)", 8920: "Jellyfin HTTPS", 9000: "Portainer/Web-App", 9090: "Cockpit/Prometheus", 9091: "Transmission",

@@ -13,6 +13,7 @@ export const GUIDES = {
       steps: [
         "Schau unten auf dieser Seite in den Kasten „Was Shodan sieht“. Fehlt der Port dort, sieht ihn das Internet (Stand: letzter Shodan-Besuch) nicht.",
         "Prüfe in der FRITZ!Box unter Internet → Freigaben → Portfreigaben, ob es eine Freigabe für diesen Port gibt. Achte auch auf die Liste der per UPnP geöffneten Ports darunter.",
+        "Ports, die die FRITZ!Box für sich selbst öffnet (z. B. 8089 Anbieter-Dienste, 443 MyFRITZ!, 5060 Telefonie), stehen nicht unter Portfreigaben, sondern unter Diagnose → Sicherheit.",
         "Ganz sicher wirst du mit einem Test von außen: am Handy WLAN ausschalten, mit mobilen Daten einen Online-Portscanner öffnen und deine öffentliche IP mit diesem Port prüfen.",
         "Ist der Port von außen zu, schalte bei ihm „Erwartet“ ein. Dann meldet NetworkHelper ihn nicht mehr.",
       ],
@@ -84,14 +85,15 @@ export const GUIDES = {
       ],
     },
     tr069: {
-      title: "Fernwartung durch den Anbieter (TR-069)",
-      why: "Über Port 7547 kann dein Internetanbieter die FRITZ!Box aus der Ferne einrichten. Meist ist das nur für seine Server erreichbar. Der eigene Scan aus dem Heimnetz zeigt den Port manchmal trotzdem. Prüfe zuerst, ob Shodan ihn auch sieht.",
-      path: ["Internet", "Zugangsdaten", "Anbieter-Dienste"],
+      title: "Port 8089/7547: Fernwartung durch den Anbieter (TR-069)",
+      why: "Über diesen Port kann dein Internetanbieter die FRITZ!Box aus der Ferne einrichten (bei der FRITZ!Box meist Port 8089, sonst 7547). Die FRITZ!Box öffnet ihn selbst, sobald der Anbieter TR-069 nutzt. Es ist keine Portfreigabe, deshalb steht er nicht unter Portfreigaben. Laut AVM antwortet sie dort nur auf Anfragen mit einer vorher ausgehandelten Adresse, gibt also keine Daten an Fremde heraus.",
+      path: ["Diagnose", "Sicherheit"],
       steps: [
-        "Sieht Shodan (unten auf dieser Seite) Port 7547 nicht, ist er von außen zu und du musst nichts tun. Markiere ihn dann als erwartet.",
-        "Sonst: Internet → Zugangsdaten → Reiter „Anbieter-Dienste“. Der Reiter fehlt, wenn TR-069 schon aus ist.",
-        "Entferne den Haken bei der Erlaubnis für den Anbieter, die FRITZ!Box einzurichten, und klicke „Übernehmen“.",
-        "Achtung: Das lässt sich nur durch Zurücksetzen auf Werkseinstellungen rückgängig machen, und bei manchen Anbietern richtet sich Telefonie dann nicht mehr automatisch ein.",
+        "Schau unter Diagnose → Sicherheit in den Abschnitt zu den aus dem Internet erreichbaren Ports. Steht dort „Anbieter-Dienste (TR-069)“ mit Port 8089, kommt die Meldung von dort.",
+        "Nutzt du Telefonie und Internet von deinem Anbieter und willst nichts riskieren: Lass TR-069 an und schalte beim Port „Erwartet“ ein. Das ist vertretbar, solange die FRITZ!Box aktuell ist.",
+        "Willst du den Port schließen: Internet → Zugangsdaten → Reiter „Anbieter-Dienste“ öffnen. Fehlt der Reiter, ist TR-069 schon aus.",
+        "Dort den Haken bei der Erlaubnis entfernen, dass der Anbieter die FRITZ!Box einrichten darf, und auch die automatischen Firmware-Updates durch den Anbieter abschalten. Dann „Übernehmen“.",
+        "Achtung: Manche Anbieter (vor allem bei gemieteten Boxen) richten Telefonie darüber ein. Wenn danach etwas nicht mehr geht, schalte es wieder ein oder frag deinen Anbieter. Zurück bekommst du die Einstellung im Zweifel nur über die Werkseinstellungen.",
       ],
     },
     vpn: {
@@ -186,7 +188,7 @@ export const GUIDES = {
 const BY_PORT = {
   21: ["ftp", "portforward"], 990: ["ftp", "portforward"],
   5060: ["sip", "portforward"], 5061: ["sip", "portforward"],
-  7547: ["tr069"],
+  7547: ["tr069"], 8089: ["tr069"],
   80: ["portforward", "remote_https"], 443: ["portforward", "remote_https"], 8443: ["remote_https", "portforward"],
   22: ["portforward", "vpn"], 2222: ["portforward", "vpn"], 8006: ["portforward", "vpn"], 8007: ["portforward", "vpn"],
   3389: ["portforward", "vpn"], 5900: ["portforward", "vpn"], 5901: ["portforward", "vpn"], 10000: ["portforward", "vpn"],

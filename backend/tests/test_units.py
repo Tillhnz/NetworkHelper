@@ -100,3 +100,8 @@ def test_explain_reasons():
     assert explain(st("1.2.3.4", "sqlmap/1.7"), None)["group"] == "attack"
     assert explain(st("1.2.3.4", incidents={"bruteforce"}), None)["category"] == "bruteforce"
     assert explain({"ip": "1.2.3.4", "count": 0}, None)["category"] == "unknown"
+
+
+def test_fritzbox_own_ports_named():
+    from app.portscan import DEFAULT_PORTS, SERVICES
+    assert "TR-069" in SERVICES[8089] and 8089 in DEFAULT_PORTS
