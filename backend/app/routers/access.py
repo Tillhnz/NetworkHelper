@@ -1,5 +1,6 @@
 """Auswertung der Zugriffe: Verlauf, Ranglisten, Rohprotokoll und Details zu einer IP."""
 import calendar
+from collections import Counter
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -147,7 +148,14 @@ def ip_detail(ip: str, user: User = Depends(current_user), db: Session = Depends
     recent = db.scalars(select(E).where(*conds).order_by(E.id.desc()).limit(30)).all()
     incs = db.scalars(select(Incident).where(Incident.ip == ip).order_by(Incident.last_seen.desc()).limit(20)).all()
     block = detect.is_blocked(db, ip)
+    from .. import classify as cls, publicip
+    why = cls.classify_ips(db, since, publicip.info(db).get("ip"), ips=[ip]).get(ip)
+    if why is None:  # keine Zugriffe, z. B. nur eine Live-Verbindung
+        why = cls.explain({"ip": ip, "count": 0, "org": org}, publicip.info(db).get("ip"))
+    elif country is None and classify(ip) == "public":  # ohne Standort-Datenbank: was beim Eintreffen gespeichert wurde
+        country, org = why["stats"].get("country"), org or why["stats"].get("org")
     return {
+        "reason": _reason(why), "location": _place(ip, country),
         "ip": ip, "scope": classify(ip), "country": country, "asn": asn, "as_org": org, "total": total or 0,
         "first": first.isoformat() if first else None, "last": last.isoformat() if last else None,
         "hosts": [{"host": h, "count": c} for h, c in hosts_],
@@ -157,3 +165,87 @@ def ip_detail(ip: str, user: User = Depends(current_user), db: Session = Depends
         "incidents": [{"id": i.id, "kind": i.kind, "severity": i.severity, "count": i.count, "last_seen": i.last_seen.isoformat()} for i in incs],
         "blocked": {"id": block.id, "cidr": block.cidr, "reason": block.reason, "expires_at": block.expires_at.isoformat() if block.expires_at else None} if block else None,
     }
+
+
+# ---------- Karte und "Wer & warum" ----------
+
+def _place(ip: str, country: str | None) -> dict | None:
+    from .. import geoip
+    loc = geoip.locate(ip)
+    if loc:
+        return loc
+    c = geoip._centroids().get(country or "")  # Rückfall: gespeichertes Land
+    return {"lat": c[0], "lon": c[1], "city": None, "country": country, "exact": False} if c else None
+
+
+def _reason(c: dict) -> dict:
+    return {k: c[k] for k in ("category", "label", "group", "description", "who", "why")}
+
+
+@router.get("/map")
+def access_map(rng: str = Query("24h", alias="range"), host: str | None = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Herkunft der Zugriffe als Punkte (je Ort) mit Anzahl je Gruppe, dazu Summen je Land und der eigene Standort."""
+    from .. import classify as cls, geoip, publicip
+    since, conds = filters(rng, host, None, None, None, None, None)
+    public_ip = publicip.info(db).get("ip")
+    classified = cls.classify_ips(db, since, public_ip, limit=2000, extra_conds=conds[1:])
+    points: dict[tuple, dict] = {}
+    countries: dict[str, dict] = {}
+    unplaced = 0
+    for ip, c in classified.items():
+        s = c["stats"]
+        if c["category"] == "home":
+            continue
+        loc = _place(ip, s.get("country"))
+        if not loc:
+            unplaced += s["count"]
+            continue
+        key = (round(loc["lat"], 1), round(loc["lon"], 1))
+        p = points.setdefault(key, {"lat": loc["lat"], "lon": loc["lon"], "city": loc.get("city"), "country": loc.get("country"),
+                                    "exact": loc.get("exact", False), "count": 0, "ips": 0, "groups": {}, "categories": {}, "top": []})
+        p["count"] += s["count"]
+        p["ips"] += 1
+        p["groups"][c["group"]] = p["groups"].get(c["group"], 0) + s["count"]
+        p["categories"][c["category"]] = p["categories"].get(c["category"], 0) + s["count"]
+        p["top"].append({"ip": ip, "count": s["count"], "label": c["label"], "group": c["group"], "who": c.get("who"), "org": s.get("org")})
+        cc = loc.get("country") or "--"
+        k = countries.setdefault(cc, {"country": cc, "count": 0, "ips": 0, "attack": 0})
+        k["count"] += s["count"]
+        k["ips"] += 1
+        if c["group"] == "attack":
+            k["attack"] += s["count"]
+    out = []
+    for p in points.values():
+        p["top"] = sorted(p["top"], key=lambda t: -t["count"])[:8]
+        p["group"] = max(p["groups"], key=p["groups"].get)
+        out.append(p)
+    out.sort(key=lambda p: -p["count"])
+    home = geoip.locate(public_ip) if public_ip else None
+    if home is None:  # ohne Standort-Datenbank: das Land, aus dem die meisten eigenen Nutzer kommen
+        friendly = Counter()
+        for c in classified.values():
+            if c["group"] == "friendly" and c["stats"].get("country"):
+                friendly[c["stats"]["country"]] += c["stats"]["count"]
+        if friendly:
+            home = _place("", friendly.most_common(1)[0][0])
+    return {"range": rng, "points": out[:1500], "countries": sorted(countries.values(), key=lambda k: -k["count"]), "unplaced": unplaced,
+            "home": home, "groups": cls.GROUPS, "city_db": "city" in geoip._readers,
+            "ips": len(classified), "limited": len(classified) >= 2000}
+
+
+@router.get("/visitors")
+def visitors(rng: str = Query("24h", alias="range"), host: str | None = None, category: str | None = None,
+             user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Wer greift zu und warum: Zusammenfassung je Ursache und die wichtigsten Adressen mit Begründung."""
+    from .. import classify as cls, publicip
+    since, conds = filters(rng, host, None, None, None, None, None)
+    classified = cls.classify_ips(db, since, publicip.info(db).get("ip"), limit=2000, extra_conds=conds[1:])
+    items = []
+    for ip, c in classified.items():
+        if category and c["category"] != category:
+            continue
+        s = c["stats"]
+        items.append({"ip": ip, "count": s["count"], "country": s.get("country"), "as_org": s.get("org"), "hosts": s.get("hosts"),
+                      "last": s["last"].isoformat() if s.get("last") else None, **_reason(c)})
+    items.sort(key=lambda i: -i["count"])
+    return {"range": rng, "categories": cls.summarize(classified), "groups": cls.GROUPS, "items": items[:300], "total_ips": len(classified)}

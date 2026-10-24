@@ -74,3 +74,29 @@ def test_outside_view():
     assert outside_view(summary, "vps.example.de", 5060, "scan") == "unknown"  # Shodan fragt nur die eigene IP
     assert outside_view({"targets": ["84.130.20.50"], "shodan": None}, "84.130.20.50", 5060, "scan") == "unknown"
     assert outside_view(None, "x", 1, "shodan") == "yes"
+
+
+def test_explain_reasons():
+    from collections import Counter
+    from app.classify import explain
+
+    def st(ip, ua="", n=10, **kw):
+        return {"ip": ip, "count": n, "ok": kw.pop("ok", n), "uas": Counter({ua: n}), **kw}
+    assert explain(st("192.168.1.5"), None)["category"] == "home"
+    assert explain(st("84.1.2.3"), "84.1.2.3")["category"] == "self"
+    assert explain(st("1.2.3.4", "Mozilla/5.0 (compatible; CensysInspect/1.1)"), None)["who"] == "Censys"
+    assert explain(st("1.2.3.4", org="Censys, Inc."), None)["category"] == "research"
+    assert explain(st("1.2.3.4", "Mozilla/5.0 (compatible; Googlebot/2.1)", org="Google LLC"), None)["category"] == "crawler"
+    fake = explain(st("1.2.3.4", "Mozilla/5.0 (compatible; Googlebot/2.1)", org="Hetzner Online GmbH"), None)
+    assert fake["category"] == "datacenter" and "nicht Google" in fake["why"][1]
+    assert explain(st("1.2.3.4", "WhatsApp/2.23.20.0 A"), None)["category"] == "preview"
+    assert explain(st("1.2.3.4", "Mozilla/5.0 (Android) Nextcloud-android/3.27"), None)["who"] == "Nextcloud"
+    assert explain(st("1.2.3.4", acme=2), None)["category"] == "acme"
+    assert explain(st("1.2.3.4", "Uptime-Kuma/1.23"), None)["category"] == "monitor"
+    browser = "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/130 Safari/537.36"
+    assert explain(st("1.2.3.4", browser, org="Deutsche Telekom AG"), None)["category"] == "visitor"
+    assert explain(st("1.2.3.4", browser, ok=0, not_found=10, org="DigitalOcean, LLC"), None)["category"] == "probe"
+    assert explain(st("1.2.3.4", "python-requests/2.31", org="DigitalOcean, LLC"), None)["category"] == "datacenter"
+    assert explain(st("1.2.3.4", "sqlmap/1.7"), None)["group"] == "attack"
+    assert explain(st("1.2.3.4", incidents={"bruteforce"}), None)["category"] == "bruteforce"
+    assert explain({"ip": "1.2.3.4", "count": 0}, None)["category"] == "unknown"

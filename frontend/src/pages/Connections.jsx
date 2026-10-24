@@ -4,6 +4,7 @@ import { Segmented, Switch } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { CopyLine, Country, Dot, EmptyState, Pill, usePoll } from "../components/ui.jsx";
 import { IpDetail } from "./Access.jsx";
+import { GROUP_COLORS } from "../components/WorldMap.jsx";
 import { InfoTip, PageIntro, Term } from "../components/help.jsx";
 
 function installCommand(server, token, enforce) {
@@ -109,15 +110,16 @@ function AgentCard({ a, isAdmin, onChanged, onIp }) {
             {byRemote.length === 0 ? <p className="muted small">Gerade keine {scope === "public" ? "Verbindungen aus dem Internet" : "Verbindungen"}.</p> : (
               <div className="table-wrap flat">
                 <table className="rows">
-                  <thead><tr><th>Gegenstelle</th><th>Port</th><th>Dienst</th><th className="num">Anz.</th></tr></thead>
+                  <thead><tr><th>Gegenstelle</th><th>Warum?</th><th>Port</th><th className="hide-sm">Dienst</th><th className="num">Anz.</th></tr></thead>
                   <tbody>
                     {shown.map((c) => (
                       <tr key={`${c.remote}|${c.lport}`} className={c.blocked ? "is-blocked" : ""}>
                         <td className="nowrap"><Country code={c.country} org={c.scope === "public" ? c.as_org : "Heimnetz"} compact />{" "}
                           {c.scope === "public" ? <button className="linklike mono" onClick={() => onIp(c.remote)}>{c.remote}</button> : <span className="mono">{c.remote}</span>}
                           {c.as_org && c.scope === "public" && <div className="muted small ellipsis">{c.as_org}</div>}</td>
+                        <td className="small">{c.reason ? <span className="why-label" title={(c.reason.why || []).join(" · ")}><span className="swatch" style={{ background: GROUP_COLORS[c.reason.group] }} />{c.reason.label}</span> : "–"}</td>
                         <td className="mono">{c.lport}</td>
-                        <td className="small">{c.process || "–"}</td>
+                        <td className="small hide-sm">{c.process || "–"}</td>
                         <td className="num">{c.count}</td>
                       </tr>
                     ))}

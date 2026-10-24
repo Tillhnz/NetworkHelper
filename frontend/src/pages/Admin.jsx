@@ -333,6 +333,7 @@ const GENERAL = [
   { key: "router_type", type: "select", label: "Dein Router", options: [["fritzbox", "FRITZ!Box"], ["other", "Anderer Router"]], hint: "Für passende Anleitungen zum Schließen offener Ports." },
   { key: "retention_days", type: "number", label: "Zugriffe aufbewahren (Tage)", min: 1, max: 400, hint: "Ältere Einträge werden gelöscht." },
   { key: "geoip_enabled", type: "bool", label: "Land und Netzbetreiber ermitteln (DB-IP, offline)", hint: "Lädt einmal im Monat zwei Dateien von db-ip.com. Danach bleibt jede Abfrage auf dem Server." },
+  { key: "geoip_city", type: "bool", label: "Städte für die Herkunftskarte (rund 130 MB)", hint: "Zeigt die Punkte auf der Karte am ungefähren Ort statt in der Landesmitte. Wird nach dem Speichern im Hintergrund geladen." },
 ];
 const EMAIL = [
   { key: "smtp_host", type: "text", label: "SMTP-Server", placeholder: "smtp.gmail.com" },

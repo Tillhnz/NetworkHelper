@@ -98,6 +98,14 @@ export const GLOSSARY = {
     title: "Programm (User-Agent)",
     text: "Womit jemand zugreift, zum Beispiel ein Browser, die Nextcloud-App oder ein Skript. Angriffswerkzeuge verraten sich hier oft selbst.",
   },
+  geo_map: {
+    title: "Die Herkunftskarte",
+    text: "Jeder Punkt ist ein Ort, von dem aus deine Seiten aufgerufen wurden. Je größer, desto mehr Zugriffe. Die Farbe zeigt, warum: Türkis bist du oder deine Nutzer, Blau sind nützliche Dienste wie Let's Encrypt oder Suchmaschinen, Lila sind automatische Abfragen aus dem Internet und Rot sind Angriffsversuche. Die Linien führen zu deinem Server. Der Standort einer IP-Adresse ist nur eine Schätzung.",
+  },
+  why_category: {
+    title: "Wer & warum",
+    text: "NetworkHelper versucht für jede Adresse zu erklären, warum sie zugreift. Dazu schaut er auf den Programmnamen (User-Agent), den Netzbetreiber, die aufgerufenen Seiten und erkannte Vorfälle. Viele Zugriffe auf einen Server im Internet sind ganz normal: Suchmaschinen, Link-Vorschauen oder Firmen, die das Internet vermessen.",
+  },
   asn: {
     title: "Netzbetreiber",
     text: "Zu welchem Anbieter eine IP gehört, etwa Deutsche Telekom (ein normaler Internetanschluss) oder ein Rechenzentrum. Zugriffe aus Rechenzentren sind häufiger automatisiert.",
@@ -160,7 +168,7 @@ export const INTROS = {
   },
   access: {
     title: "Wer ruft deine Seiten auf?",
-    text: "Jeder Aufruf einer deiner Seiten landet hier: wann, welche Seite, von welcher Adresse und mit welchem Ergebnis. Grüne Balken sind normale Aufrufe, gelbe und rote sind Fehler. Klick auf eine IP-Adresse, um alles über diesen Besucher zu sehen und ihn bei Bedarf zu sperren.",
+    text: "Jeder Aufruf einer deiner Seiten landet hier: wann, welche Seite, von welcher Adresse und mit welchem Ergebnis. Grüne Balken sind normale Aufrufe, gelbe und rote sind Fehler. Unter „Karte“ siehst du, woher die Zugriffe kommen, unter „Wer & warum“, wer sie verursacht. Klick auf eine IP-Adresse, um alles über diesen Besucher zu sehen und ihn bei Bedarf zu sperren.",
   },
   connections: {
     title: "Deine Server und ihre Verbindungen",
@@ -194,6 +202,7 @@ export const TOUR = [
   { path: "/", target: "score", title: "Die Sicherheits-Ampel", text: "Eine Zahl von 0 bis 100. Für jedes Problem gibt es Abzug, und daneben steht genau, welches. Ein Klick auf einen Punkt führt dich direkt dorthin, wo du es beheben kannst." },
   { path: "/", target: "services", title: "Deine Dienste", text: "Jeder Punkt ist ein Dienst, zum Beispiel Nextcloud oder Jellyfin. Grün: erreichbar. Rot: gerade ausgefallen." },
   { path: "/", target: "kpis", title: "Die wichtigsten Zahlen", text: "Wie viele Aufrufe es in 24 Stunden gab, von wie vielen Adressen, ob es verdächtige Vorfälle gab und wann das nächste Zertifikat abläuft. Gelbe Zahlen verdienen einen Blick." },
+  { path: "/access", target: "access-views", title: "Drei Blickwinkel", text: "„Übersicht“ zeigt Zahlen und das Protokoll. „Karte“ zeigt, woher auf der Welt die Zugriffe kommen. „Wer & warum“ erklärt, wer hinter den Zugriffen steckt: du selbst, Suchmaschinen, Scanner oder Angreifer." },
   { path: "/access", target: "access-filters", title: "Zugriffe filtern", text: "Wähle oben den Zeitraum. Mit den Filtern siehst du zum Beispiel nur einen Dienst, nur Fehler oder nur Zugriffe von außen (ohne deine eigenen Geräte)." },
   { path: "/access", target: "access-chart", title: "Der Verlauf", text: "Jeder Balken ist ein Zeitabschnitt. Grün sind erfolgreiche Aufrufe, Gelb Fehler wie „Seite nicht gefunden“ oder „falsches Passwort“, Rot Fehler beim Dienst." },
   { path: "/access", target: "access-ips", title: "Wer besucht dich?", text: "Die häufigsten Adressen mit Land und Anbieter. Klick auf eine IP: Du siehst alles über diesen Besucher und kannst ihn mit einem Klick sperren." },

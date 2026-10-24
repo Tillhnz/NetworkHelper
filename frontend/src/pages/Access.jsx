@@ -6,8 +6,10 @@ import { Segmented } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { Country, Drawer, EmptyState, Kpi, Pill } from "../components/ui.jsx";
 import { InfoTip, PageIntro, Term } from "../components/help.jsx";
+import { MapView, ReasonBox, WhyView } from "./AccessViews.jsx";
 
 const RANGES = [{ value: "1h", label: "1 Std." }, { value: "24h", label: "24 Std." }, { value: "7d", label: "7 Tage" }, { value: "30d", label: "30 Tage" }];
+const VIEWS = [["", "Übersicht"], ["map", "Karte"], ["why", "Wer & warum"]];
 const SCOPES = [{ value: "", label: "Alle" }, { value: "external", label: "Von außen" }, { value: "internal", label: "Heimnetz" }];
 
 export function IpDetail({ ip, onClose, onFilter, isAdmin }) {
@@ -38,6 +40,8 @@ export function IpDetail({ ip, onClose, onFilter, isAdmin }) {
             {d.as_org && d.as_org !== "Heimnetz" && <span className="muted">{d.as_org}{d.asn ? ` (AS${d.asn})` : ""}</span>}
             {d.blocked && <Pill tone="due">Gesperrt{d.blocked.expires_at ? ` bis ${fmtDateTime(d.blocked.expires_at)}` : ""}</Pill>}
           </div>
+          <ReasonBox reason={d.reason} />
+          {d.location && <p className="muted small">Ungefährer Standort: {d.location.city ? `${d.location.city}, ` : ""}{countryName(d.location.country)}</p>}
           <dl className="facts">
             <div><dt>Zugriffe (30 Tage)</dt><dd>{fmtNum(d.total)}</dd></div>
             <div><dt>Zuerst gesehen</dt><dd>{fmtDateTime(d.first)}</dd></div>
@@ -98,8 +102,9 @@ export default function Access({ user }) {
   const [params, setParams] = useSearchParams();
   const f = {
     range: params.get("range") || "24h", host: params.get("host") || "", ip: params.get("ip") || "", country: params.get("country") || "",
-    status: params.get("status") || "", q: params.get("q") || "", scope: params.get("scope") || "",
+    status: params.get("status") || "", q: params.get("q") || "", scope: params.get("scope") || "", view: params.get("view") || "",
   };
+  const view = f.view;
   const [data, setData] = useState(null);
   const [events, setEvents] = useState(null);
   const [next, setNext] = useState(null);
@@ -107,7 +112,8 @@ export default function Access({ user }) {
   const [error, setError] = useState("");
   const [detail, setDetail] = useState(null);
   const [search, setSearch] = useState(f.q);
-  const key = qs(f);
+  const { view: _v, ...listFilters } = f;
+  const key = qs(listFilters);
 
   const set = (patch) => {
     const n = { ...f, ...patch };
@@ -118,16 +124,17 @@ export default function Access({ user }) {
 
   useEffect(() => { api.get("/access/hosts").then(setHosts).catch(() => {}); }, []);
   useEffect(() => {
+    if (view) return undefined;
     let alive = true;
     setError("");
     Promise.all([api.get(`/access/summary${key}`), api.get(`/access/events${key}`)])
       .then(([s, e]) => { if (!alive) return; setData(s); setEvents(e.items); setNext(e.next); })
       .catch((e) => alive && setError(e.message));
     return () => { alive = false; };
-  }, [key]);
+  }, [key, view]);
 
   async function more() {
-    const e = await api.get(`/access/events${qs({ ...f, before_id: next })}`);
+    const e = await api.get(`/access/events${qs({ ...listFilters, before_id: next })}`);
     setEvents((l) => [...l, ...e.items]);
     setNext(e.next);
   }
@@ -148,6 +155,22 @@ export default function Access({ user }) {
       </header>
 
       <PageIntro id="access" />
+      <div className="tabs" role="tablist" aria-label="Ansicht" data-tour="access-views">
+        {VIEWS.map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={view === k} className={`tab ${view === k ? "on" : ""}`} onClick={() => set({ view: k })}>{label}</button>
+        ))}
+      </div>
+      {view && (
+        <div className="filter-bar">
+          <select value={f.host} onChange={(e) => set({ host: e.target.value })} aria-label="Host">
+            <option value="">Alle Hosts</option>
+            {hosts.map((h) => <option key={h} value={h}>{h}</option>)}
+          </select>
+        </div>
+      )}
+      {view === "map" && <MapView range={f.range} host={f.host} onIp={setDetail} />}
+      {view === "why" && <WhyView range={f.range} host={f.host} onIp={setDetail} />}
+      {!view && <>
       <div className="filter-bar" data-tour="access-filters">
         <select value={f.host} onChange={(e) => set({ host: e.target.value })} aria-label="Host">
           <option value="">Alle Hosts</option>
@@ -254,7 +277,8 @@ export default function Access({ user }) {
           </section>
         </>
       )}
-      {detail && <IpDetail ip={detail} onClose={() => setDetail(null)} onFilter={(ip) => set({ ip })} isAdmin={user.role === "admin"} />}
+      </>}
+      {detail && <IpDetail ip={detail} onClose={() => setDetail(null)} onFilter={(ip) => set({ ip, view: "" })} isAdmin={user.role === "admin"} />}
     </>
   );
 }

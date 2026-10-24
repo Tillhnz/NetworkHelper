@@ -25,6 +25,7 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "router_type": ("choice:fritzbox|other", "general", False),
     "retention_days": ("int:1:400", "general", False),
     "geoip_enabled": ("bool", "general", False),
+    "geoip_city": ("bool", "general", False),
     "smtp_host": ("host", "email", False),
     "smtp_port": ("int:1:65535", "email", False),
     "smtp_user": ("str:255", "email", False),

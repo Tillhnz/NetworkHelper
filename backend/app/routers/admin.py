@@ -136,7 +136,8 @@ def save_settings(data: SettingsIn, admin: User = Depends(require_admin), db: Se
     except server_settings.SettingError as e:
         raise HTTPException(422, str(e))
     audit.record(db, admin.email, "settings.save", ", ".join(sorted(data.values))[:290])
-    if "geoip_enabled" in data.values and settings.geoip_enabled:
+    if ("geoip_enabled" in data.values or "geoip_city" in data.values) and settings.geoip_enabled:
+        geoip.reload()  # Städte aus- oder einschalten wirkt sofort
         scheduler.trigger("maintenance")
     if any(k.startswith("npm_") for k in data.values) and npm.configured():
         scheduler.trigger("npm_sync")
@@ -256,7 +257,7 @@ def health(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     checks.append({"key": "mail", "label": "E-Mail-Versand", "ok": smtp, "text": "eingerichtet" if smtp else "nicht eingerichtet"})
     geo = geoip.status()
     geo_ok = all(v["present"] for v in geo.values())
-    checks.append({"key": "geoip", "label": "Länder-Datenbank (DB-IP)", "ok": geo_ok or not settings.geoip_enabled,
+    checks.append({"key": "geoip", "label": "Standort-Datenbanken (DB-IP)", "ok": geo_ok or not settings.geoip_enabled,
                    "text": "vorhanden" if geo_ok else ("ausgeschaltet" if not settings.geoip_enabled else "wird geladen oder fehlt")})
     try:
         _updater("GET", "/status", timeout=5)

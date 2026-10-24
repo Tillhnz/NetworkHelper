@@ -6,7 +6,9 @@
 
 **Zugriffe sichtbar machen**
 - Liest die Zugriffsprotokolle des Nginx Proxy Managers mit (über einen kleinen Agenten) und zeigt Verlauf, Hosts, Herkunftsländer, Netzbetreiber, Antwortcodes, Pfade und ein durchsuchbares Rohprotokoll.
-- Ein Klick auf eine IP zeigt alles zu dieser Adresse: Ziele, Programme, letzte Anfragen, Vorfälle, Sperren.
+- **Herkunftskarte:** Eine Weltkarte zeigt, woher die Zugriffe kommen. Punktgröße = Anzahl, Farbe = Grund (du und deine Nutzer, nützliche Dienste, automatisches Rauschen, Angriffe). Mit Ausschnitten für Welt, Europa und Deutschland, Zoom und einer Liste der Adressen je Ort.
+- **Wer & warum:** NetworkHelper ordnet jede Adresse einer verständlichen Ursache zu, mit Begründung: Heimnetz, du selbst über deine Domain, Apps (Nextcloud, Jellyfin, Home Assistant …), Browser-Besuche, Let's Encrypt, Erreichbarkeits-Prüfer, Suchmaschinen und KI-Crawler, Link-Vorschauen (WhatsApp, Telegram …), Internet-Vermessung (Censys, Shodan …), Rechenzentrums-Bots, Herumstochern, Schwachstellen-Suche und Passwort-Angriffe. Falsche „Googlebots“ aus fremden Rechenzentren werden erkannt.
+- Ein Klick auf eine IP zeigt alles zu dieser Adresse: warum sie zugreift, Ziele, Programme, letzte Anfragen, Vorfälle, Sperren.
 - Live-Verbindungen: Jeder Server mit Agent meldet alle 30 Sekunden aktive Verbindungen und offene Ports, dazu Last, Speicher und Docker-Container.
 - Land und Netzbetreiber kommen offline aus den freien Datenbanken von DB-IP. Keine IP-Adresse verlässt dafür den Server.
 
@@ -132,4 +134,4 @@ GitHub Actions prüft bei jedem Push Backend (ruff, pytest), Frontend-Build, Skr
 
 ## Lizenzen und Quellen
 
-IP-Geolokalisierung: [IP Geolocation by DB-IP](https://db-ip.com) (CC BY 4.0). Außenansicht: [Shodan InternetDB](https://internetdb.shodan.io). DNS: [Porkbun API v3](https://porkbun.com/api/json/v3/documentation).
+IP-Geolokalisierung: [IP Geolocation by DB-IP](https://db-ip.com) (CC BY 4.0). Weltkarte: [Natural Earth](https://www.naturalearthdata.com) (gemeinfrei), erzeugt mit `tools/build_world.py`. Außenansicht: [Shodan InternetDB](https://internetdb.shodan.io). DNS: [Porkbun API v3](https://porkbun.com/api/json/v3/documentation).

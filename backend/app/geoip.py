@@ -21,7 +21,25 @@ from .netutil import classify
 
 log = logging.getLogger("networkhelper.geoip")
 
-FILES = {"country": "dbip-country-lite", "asn": "dbip-asn-lite"}
+FILES = {"country": "dbip-country-lite", "asn": "dbip-asn-lite", "city": "dbip-city-lite"}  # Städte: rund 130 MB, optional
+_CENTROIDS: dict[str, list[float]] = {}
+
+
+def _centroids() -> dict[str, list[float]]:
+    """Ländermittelpunkte (Natural Earth) als Rückfall, wenn keine Stadt bekannt ist."""
+    if not _CENTROIDS:
+        import json
+        path = os.path.join(os.path.dirname(__file__), "data", "country_centroids.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                _CENTROIDS.update(json.load(f))
+        except OSError:
+            pass
+    return _CENTROIDS
+
+
+def wanted_files() -> list[str]:
+    return [k for k in FILES if k != "city" or settings.geoip_city]
 _lock = threading.Lock()
 _readers: dict[str, object] = {}
 
@@ -50,16 +68,20 @@ def reload() -> None:
             except Exception:
                 pass
         _readers.clear()
-        for kind in FILES:
+        for kind in wanted_files():
             r = _open(kind)
             if r is not None:
                 _readers[kind] = r
     lookup.cache_clear()
+    try:
+        locate.cache_clear()
+    except NameError:  # beim ersten Laden noch nicht definiert
+        pass
 
 
 def status() -> dict:
     out = {}
-    for kind in FILES:
+    for kind in wanted_files():
         p = _path(kind)
         out[kind] = {"present": os.path.exists(p), "modified": os.path.getmtime(p) if os.path.exists(p) else None}
     return out
@@ -126,9 +148,32 @@ def refresh_if_old(max_age_days: int = 32) -> None:
     if not settings.geoip_enabled:
         return
     changed = False
-    for kind in FILES:
+    for kind in wanted_files():
         p = _path(kind)
         if not os.path.exists(p) or time.time() - os.path.getmtime(p) > max_age_days * 86400:
             changed |= _download(kind)
     if changed or not _readers:
         reload()
+
+
+@lru_cache(maxsize=50000)
+def locate(ip: str) -> dict | None:
+    """Standort für die Karte: {lat, lon, city, country, exact}. Ohne Städtedatenbank der Mittelpunkt des Landes."""
+    if classify(ip) != "public" or not settings.geoip_enabled:
+        return None
+    r = _readers.get("city")
+    if r is not None:
+        try:
+            rec = r.get(ip) or {}
+            loc = rec.get("location") or {}
+            if loc.get("latitude") is not None:
+                names = (rec.get("city") or {}).get("names") or {}
+                return {"lat": round(loc["latitude"], 2), "lon": round(loc["longitude"], 2),
+                        "city": names.get("de") or names.get("en"), "country": (rec.get("country") or {}).get("iso_code"), "exact": True}
+        except Exception:
+            pass
+    country, _, _ = lookup(ip)
+    c = _centroids().get(country or "")
+    if not c:
+        return None
+    return {"lat": c[0], "lon": c[1], "city": None, "country": country, "exact": False}

@@ -3,7 +3,7 @@ import hashlib
 import json
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import PlainTextResponse
@@ -121,14 +121,25 @@ def connections(user: User = Depends(current_user), db: Session = Depends(get_db
     """Letzte Momentaufnahme jedes Agenten, ergänzt um Land und Netzbetreiber."""
     out = []
     find_block = detect.block_lookup(db)
-    for a in db.scalars(select(Agent).order_by(Agent.id)):
+    from .. import classify as cls, publicip
+    agents_ = db.scalars(select(Agent).order_by(Agent.id)).all()
+    remotes = sorted({c.get("remote", "") for a in agents_ for c in _json(a.connections, {}).get("established", []) if classify(c.get("remote", "")) == "public"})
+    public_ip = publicip.info(db).get("ip")
+    reasons = cls.classify_ips(db, datetime.utcnow() - timedelta(hours=24), public_ip, ips=remotes[:1000]) if remotes else {}
+    for a in agents_:
         snap = _json(a.connections, {})
         est = []
         for c in snap.get("established", []):
             kind = classify(c.get("remote", ""))
             country, _, org = geoip.lookup(c.get("remote", "")) if kind == "public" else (None, None, None)
             blocked = find_block(c["remote"]) is not None if kind == "public" else False
-            est.append({**c, "scope": kind, "country": country, "as_org": org, "blocked": blocked})
+            r = reasons.get(c.get("remote", ""))
+            if r is None:
+                r = cls.explain({"ip": c.get("remote", ""), "count": 0, "org": org}, public_ip)
+                if kind == "public":
+                    r = {**r, "why": r["why"] + [f"Keine Webzugriffe in den letzten 24 Stunden, nur diese Verbindung zu Port {c.get('lport')}"]}
+            est.append({**c, "scope": kind, "country": country, "as_org": org, "blocked": blocked,
+                        "reason": {k: r[k] for k in ("category", "label", "group", "why")}})
         est.sort(key=lambda c: (c["scope"] != "public", c.get("lport") or 0))
         out.append({**agent_row(a), "connections_at": a.connections_at.isoformat() if a.connections_at else None,
                     "established": est, "listening": sorted(snap.get("listening", []), key=lambda x: (x.get("port") or 0))})

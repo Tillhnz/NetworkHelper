@@ -316,3 +316,35 @@ def test_router_guides_settings(client, admin):
     assert "router:update" in me["hints_hidden"]
     me = client.put("/api/me/onboarding", headers=admin, json={"unhide_hint": "router:update"}).json()
     assert "router:update" not in me["hints_hidden"]
+
+
+def test_map_and_visitors(client, admin):
+    from app.models import AccessEvent
+    now = datetime.utcnow()
+    rows = [("91.12.34.56", "DE", "Deutsche Telekom AG", "Mozilla/5.0 (Windows NT 10.0) Chrome/130 Safari/537.36", 200, "/", 4),
+            ("162.142.125.9", "US", "Censys, Inc.", "Mozilla/5.0 (compatible; CensysInspect/1.1)", 404, "/", 3),
+            ("45.148.10.1", "NL", "Stark Industries", "zgrab/0.x", 404, "/.env", 6),
+            ("192.168.1.50", None, "Heimnetz", "Mozilla/5.0", 200, "/", 2)]
+    with SessionLocal() as db:
+        for ip, cc, org, ua, status, path, n in rows:
+            for i in range(n):
+                db.add(AccessEvent(ts=now - timedelta(minutes=i), host="cloud.example.de", method="GET", path=path, status=status,
+                                   bytes=1, ip=ip, country=cc, as_org=org, user_agent=ua))
+        db.add(Incident(ip="45.148.10.1", kind="scanner", severity="warn", count=6, first_seen=now, last_seen=now))
+        db.commit()
+    m = client.get("/api/access/map?range=24h", headers=admin)
+    assert m.status_code == 200, m.text
+    m = m.json()
+    by_cc = {p["country"]: p for p in m["points"]}
+    assert set(by_cc) == {"DE", "US", "NL"}  # Heimnetz nicht auf der Karte
+    assert by_cc["NL"]["group"] == "attack" and by_cc["US"]["group"] == "noise" and by_cc["DE"]["group"] == "friendly"
+    assert sum(p["count"] for p in m["points"]) == 13 and m["countries"][0]["country"] == "NL"
+    v = client.get("/api/access/visitors?range=24h", headers=admin).json()
+    cats = {c["category"]: c for c in v["categories"]}
+    assert cats["research"]["who"] == ["Censys"] and cats["scan_attack"]["count"] == 6 and cats["home"]["ips"] == 1
+    assert v["categories"][0]["group"] == "attack"
+    only = client.get("/api/access/visitors?range=24h&category=visitor", headers=admin).json()["items"]
+    assert [i["ip"] for i in only] == ["91.12.34.56"]
+    d = client.get("/api/access/ip/162.142.125.9", headers=admin).json()
+    assert d["reason"]["category"] == "research" and d["location"]["country"] == "US"
+    assert client.get("/api/access/map?range=99d", headers=admin).status_code == 422

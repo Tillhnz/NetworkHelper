@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     monitor_interval_s: int = 60
     retention_days: int = 30
     geoip_enabled: bool = True
+    geoip_city: bool = True  # Städtedatenbank für die Karte (rund 130 MB)
 
     class Config:
         env_file = ".env"
