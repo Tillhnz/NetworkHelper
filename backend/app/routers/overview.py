@@ -3,14 +3,14 @@ import calendar
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Integer, cast, distinct, func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
 from .. import npm, porkbun, portscan, publicip, state
 from ..database import get_db
 from ..models import AccessEvent, Agent, Alert, DynRecord, Incident, Monitor, PortFinding, SiteCheck, User
 from ..security import current_user, require_admin
-from .access import epoch
+from .access import time_buckets
 
 router = APIRouter(prefix="/api", tags=["overview"])
 
@@ -64,8 +64,8 @@ def overview(user: User = Depends(current_user), db: Session = Depends(get_db)):
     blocked = db.scalar(select(func.count()).where(*conds, E.blocked.is_(True))) or 0
     size = 3600
     start = calendar.timegm(since.timetuple()) // size * size
-    bucket = cast(epoch(db, E.ts) // size, Integer)
-    rows = db.execute(select(bucket, cast(E.status // 100, Integer), func.count()).where(*conds).group_by(bucket, cast(E.status // 100, Integer))).all()
+    bucket, klass = time_buckets(db, size)
+    rows = db.execute(select(bucket, klass, func.count()).where(*conds).group_by(bucket, klass)).all()
     series = [{"t": datetime.utcfromtimestamp(start + i * size).isoformat(), "2": 0, "3": 0, "4": 0, "5": 0} for i in range(25)]
     for b, k, c in rows:
         i = int(b) - start // size

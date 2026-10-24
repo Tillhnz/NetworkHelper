@@ -234,6 +234,11 @@ def test_overview_and_ports(client, admin, monkeypatch):
     texts = [r["text"] for r in ov["security"]["reasons"]]
     assert any("8006" in t for t in texts) and not any("Port 443" in t for t in texts)
     assert ov["access"]["total"] >= 7 and len(ov["access"]["series"]) == 25
+    # Jeder Zugriff landet in genau einem Balken des Verlaufs
+    assert sum(s["2"] + s["3"] + s["4"] + s["5"] for s in ov["access"]["series"]) == ov["access"]["total"]
+    for rng in ("1h", "24h", "7d", "30d"):
+        s = client.get(f"/api/access/summary?range={rng}", headers=admin).json()
+        assert sum(b["2"] + b["3"] + b["4"] + b["5"] for b in s["series"]) == s["total"], rng
     r = client.put("/api/security/ports/expected", headers=admin, json={"port": 8006, "expected": True})
     assert 8006 in r.json()["expected"] and 443 in r.json()["expected"]
     ports = client.get("/api/security/ports", headers=admin).json()

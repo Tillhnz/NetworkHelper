@@ -21,7 +21,34 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Statische Prüfung
         run: ruff check --select F,E9 app tests ../agent ../updater
-      - name: Tests
+      - name: Tests (SQLite)
+        run: python -m pytest -q
+
+  backend-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: networkhelper
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: networkhelper
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U networkhelper" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Tests (PostgreSQL wie im Betrieb)
+        env:
+          DATABASE_URL: postgresql+psycopg://networkhelper:ci@localhost:5432/networkhelper
         run: python -m pytest -q
 
   frontend:

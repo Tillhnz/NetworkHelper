@@ -3,7 +3,7 @@ import calendar
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Integer, case, cast, distinct, func, select
+from sqlalchemy import Integer, case, cast, distinct, func, literal_column, select
 from sqlalchemy.orm import Session
 
 from .. import detect
@@ -22,9 +22,20 @@ RANGES = {  # Zeitraum -> (Dauer, Abschnittsgröße in Sekunden)
 }
 
 
+def time_buckets(db: Session, size: int):
+    """(Zeitabschnitt, Statusklasse) als Ausdrücke zum Gruppieren.
+
+    Die Zahlen stehen als Literal im SQL, nicht als Parameter: PostgreSQL erkennt sonst nicht, dass der Ausdruck im
+    SELECT derselbe ist wie im GROUP BY. Beide Seiten sind ganze Zahlen, die Division schneidet also ab.
+    """
+    bucket = epoch(db, AccessEvent.ts) // literal_column(str(int(size)), Integer)
+    klass = AccessEvent.status // literal_column("100", Integer)
+    return bucket, klass
+
+
 def epoch(db: Session, col):
     if db.bind.dialect.name == "postgresql":
-        return cast(func.extract("epoch", col), Integer)
+        return cast(func.floor(func.extract("epoch", col)), Integer)
     return cast(func.strftime("%s", col), Integer)
 
 
@@ -68,9 +79,8 @@ def summary(rng: str = Query("24h", alias="range"), host: str | None = None, ip:
     start = calendar.timegm(since.timetuple()) // size * size
     E = AccessEvent
     total, uniq, nbytes = db.execute(select(func.count(), func.count(distinct(E.ip)), func.sum(E.bytes)).where(*conds)).one()
-    klass = cast(E.status // 100, Integer)
-    bucket = (epoch(db, E.ts) // size).label("b")
-    rows = db.execute(select(cast(bucket, Integer), klass, func.count()).where(*conds).group_by(cast(bucket, Integer), klass)).all()
+    bucket, klass = time_buckets(db, size)
+    rows = db.execute(select(bucket, klass, func.count()).where(*conds).group_by(bucket, klass)).all()
     n = int(RANGES[rng][0].total_seconds() // size) + 1
     series = [{"t": datetime.utcfromtimestamp(start + i * size).isoformat(), "2": 0, "3": 0, "4": 0, "5": 0} for i in range(n)]
     for b, k, c in rows:
