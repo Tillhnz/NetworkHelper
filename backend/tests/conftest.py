@@ -31,4 +31,12 @@ def client():
 def admin(client):
     r = client.post("/api/auth/register", json={"email": "admin@example.de", "password": "geheim1234"})
     assert r.status_code == 201, r.text
+    client.cookies.clear()  # Tests nutzen den Bearer-Kopf; Cookies prüft test_cookie_session gezielt
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+@pytest.fixture(autouse=True)
+def _no_cookies(request):
+    if "client" in request.fixturenames:
+        request.getfixturevalue("client").cookies.clear()
+    yield

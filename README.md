@@ -22,12 +22,21 @@
 - Sperrliste: per Klick oder automatisch. Der Agent setzt sie im Proxy Manager als `deny`-Regeln um, gesperrte Adressen bekommen „403“.
 - Erreichbarkeit: Statusseite mit Verlauf, Verfügbarkeit über 24 Stunden, 7 und 30 Tage und Antwortzeiten. Für jeden Proxy Host entsteht automatisch ein Monitor.
 
+- **Apps aktuell?** Erkennt Nextcloud, Jellyfin, Vaultwarden, Immich, Gitea, Forgejo, Grafana, Audiobookshelf, Navidrome, Home Assistant, Proxmox und den Proxy Manager selbst, liest die Version ab und vergleicht sie mit GitHub-Releases und veröffentlichten Sicherheitswarnungen (GitHub Security Advisories).
+- **Wachsamkeit auf den Servern:** Der Agent meldet erfolgreiche und fehlgeschlagene SSH- und Proxmox-Anmeldungen, neue Benutzerkonten und Administratoren, geänderte wichtige Systemdateien (authorized_keys, sudoers, cron, systemd …) und neue lauschende Dienste. Nur Prüfsummen und Namen verlassen den Server.
+- **Länder sperren und öffentliche Sperrlisten** (Spamhaus DROP, FireHOL Level 1) direkt im Proxy Manager, mit Vorschau, wen eine Regel in der letzten Woche getroffen hätte, und Warnung, wenn eigene Nutzer betroffen wären.
+- **Standardseite des Proxy Managers** („Congratulations!“) wird bei der Seitenprüfung erkannt und gemeldet.
+
 **DNS automatisch bei Porkbun**
 - Records ansehen, anlegen und löschen.
 - DynDNS: markierte A-Records folgen automatisch der öffentlichen IP.
 - Abgleich mit dem Proxy Manager: zeigt, welche Proxy Hosts noch keinen DNS-Eintrag haben, legt sie per Klick oder auf Wunsch automatisch an (A-Record mit DynDNS oder CNAME auf die Hauptdomain).
 
-**Warnungen per E-Mail**, gesammelt statt einzeln (kritische sofort), mit einstellbarer Schwelle. Alle Meldungen stehen zusätzlich unter „Meldungen“.
+**Warnungen per E-Mail**, gesammelt statt einzeln (kritische sofort), mit einstellbarer Schwelle. Alle Meldungen stehen zusätzlich unter „Meldungen“. Dazu ein **Wochenbericht** (Tag und Uhrzeit einstellbar).
+
+**Domain-Schutz:** prüft SPF, DMARC, Null-MX und CAA deiner Porkbun-Domains. Für Domains ohne Postfach setzt ein Klick die strengen Werte, damit niemand Mails in deinem Namen fälschen kann.
+
+**Anmeldung:** Sitzung in einem HttpOnly-Cookie (für Skripte unlesbar, SameSite=Strict), dazu optional Zwei-Faktor-Anmeldung.
 
 ## Installation auf Proxmox
 
@@ -81,7 +90,9 @@ Ein einzelnes Python-Skript ohne Abhängigkeiten (`agent/nh-agent.py`, ab Python
 
 - Liest `proxy-host-*_access.log`, `redirection-host-*_access.log` und `fallback_access.log` im Logordner des Proxy Managers mit. Beim ersten Start liefert er das letzte Stück jeder Datei nach. Rotierte Dateien werden erkannt, nicht gesendete Zeilen gehen bei Verbindungsabbrüchen nicht verloren.
 - Meldet aktive Verbindungen und offene Ports (`ss`), Adressen, Last, Speicher und Docker-Container.
-- Mit `--enforce-blocks`: schreibt die Sperrliste nach `data/nginx/custom/networkhelper_blocklist.conf`, bindet sie über `server_proxy.conf` in alle Proxy Hosts ein, prüft die Konfiguration mit `nginx -t` und lädt nginx neu. Ist die Konfiguration fehlerhaft, wird die Änderung zurückgenommen.
+- Mit `--enforce-blocks`: schreibt die Sperrliste nach `data/nginx/custom/networkhelper_blocklist.conf`, bindet sie über `server_proxy.conf` in alle Proxy Hosts ein, prüft die Konfiguration mit `nginx -t` und lädt nginx neu. Ist die Konfiguration fehlerhaft, wird die Änderung zurückgenommen. Länder- und Listen-Sperren kommen als geo-Tabellen nach `networkhelper_http.conf` (eingebunden über `http_top.conf`); abgewiesen wird mit 444, Let's Encrypt und das Heimnetz sind immer erlaubt.
+- Wachsamkeit (alle 5 Minuten): Anmeldungen aus dem Journal bzw. `/var/log/auth.log`, Konten aus `/etc/passwd`, Prüfsummen wichtiger Dateien. Abschalten: `"watch": false` in `/etc/networkhelper-agent.json`.
+- Aktualisiert sich ab Version 1.1 selbst, wenn NetworkHelper eine neuere Version mitbringt (`"auto_update": false` schaltet das ab). Agenten der Version 1.0 einmal mit dem Installationsbefehl (ohne Parameter) aktualisieren.
 
 ```bash
 journalctl -u networkhelper-agent -f            # Protokoll
@@ -90,7 +101,7 @@ curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | bash -s -- --e
 curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | bash -s -- --uninstall        # Entfernen
 ```
 
-Den Agenten kannst du auch auf weiteren Servern installieren. Ohne Proxy Manager meldet er nur Verbindungen und Ports.
+Den Agenten kannst du auch auf weiteren Servern installieren, am besten auch direkt auf dem **Proxmox-Host**: Ohne Proxy Manager meldet er Verbindungen, Ports und alles aus der Wachsamkeit (Anmeldungen an SSH und an der Proxmox-Oberfläche, Konten, wichtige Dateien).
 
 ## Zwei-Faktor-Anmeldung
 

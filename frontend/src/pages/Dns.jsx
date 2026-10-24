@@ -117,6 +117,47 @@ function NpmSync({ isAdmin, status }) {
   );
 }
 
+const FIX_TEXT = { null_mx: "MX 0 .", spf: "TXT v=spf1 -all", dmarc: "TXT _dmarc v=DMARC1; p=reject …", dmarc_monitor: "TXT _dmarc v=DMARC1; p=none", caa: 'CAA 0 issue "letsencrypt.org"' };
+
+function Protection({ isAdmin }) {
+  const [d, setD] = useState(null);
+  const [busy, setBusy] = useState("");
+  const load = useCallback((refresh = false) => api.get(`/dns/protection${refresh ? "?refresh=true" : ""}`).then(setD).catch((e) => toast(e.message, "error")), []);
+  useEffect(() => { load(); }, [load]);
+  async function fix(domain, key) {
+    setBusy(domain + key);
+    try { setD({ configured: true, ...(await api.post(`/dns/protection/${domain}/${key}`, {})) }); toast("Eintrag bei Porkbun angelegt."); } catch (e) { toast(e.message, "error"); } finally { setBusy(""); }
+  }
+  if (!d || !d.configured) return null;
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Domain-Schutz <InfoTip k="domain_guard" /></h2>
+        <button className="link small" onClick={() => load(true)}>Neu prüfen</button>
+      </div>
+      <p className="muted small">Ohne diese Einträge kann jeder E-Mails verschicken, die scheinbar von deiner Domain kommen, zum Beispiel für Betrugsversuche in deinem Namen. Für Domains ohne eigenes Postfach reicht ein Klick.</p>
+      {d.domains.map((dom) => (
+        <div key={dom.domain} className="guard">
+          <h3 className="sub-title">{dom.domain} {dom.error ? <Pill tone="muted">nicht lesbar</Pill> : dom.ok ? <Pill tone="ok">geschützt</Pill> : dom.open ? <Pill status="warn">{dom.open} offen</Pill> : <Pill tone="muted">Empfehlungen</Pill>}
+            <span className="muted small"> · {dom.mail ? "mit E-Mail-Postfach" : "ohne E-Mail"}</span></h3>
+          {dom.error && <p className="error small">{dom.error}</p>}
+          <ul className="guard-list">
+            {dom.checks.map((c) => (
+              <li key={c.key} className={c.ok ? "ok" : c.severity === "info" ? "info" : "bad"}>
+                <span className="guard-icon" aria-hidden="true">{c.ok ? "✓" : c.severity === "info" ? "○" : "✕"}</span>
+                <span className="grow"><strong>{c.label}</strong><span className="muted small block">{c.detail}</span></span>
+                {!c.ok && c.fix && isAdmin && (
+                  <button className="btn small" disabled={busy === dom.domain + c.fix} onClick={() => fix(dom.domain, c.fix)} title={FIX_TEXT[c.fix]}>Setzen</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export default function Dns({ user }) {
   const isAdmin = user.role === "admin";
   const [st, setSt] = useState(null);
@@ -184,6 +225,7 @@ export default function Dns({ user }) {
           )}
         </>
       )}
+      {st.configured && <Protection isAdmin={isAdmin} />}
       {st.npm_configured && (
         <section className="panel">
           <div className="panel-head"><h2>Abgleich mit dem Proxy Manager <InfoTip title="Abgleich" label="Was macht der Abgleich?">Für jeden Dienst im Proxy Manager prüft NetworkHelper, ob es bei Porkbun einen passenden Eintrag gibt. Ausrufezeichen heißt: Der Name ist noch nicht im Telefonbuch, Besucher finden den Dienst nicht. Ein Klick auf „Anlegen“ behebt das.</InfoTip></h2>

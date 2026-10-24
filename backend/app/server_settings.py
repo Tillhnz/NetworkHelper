@@ -56,6 +56,13 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "site_check_interval_h": ("int:1:168", "security", False),
     "exposure_enabled": ("bool", "security", False),
     "two_factor_required": ("bool", "security", False),
+    "app_check_enabled": ("bool", "security", False),
+    "feed_spamhaus": ("bool", "security", False),
+    "feed_firehol": ("bool", "security", False),
+    "weekly_report": ("bool", "email", False),
+    "weekly_report_day": ("int:0:6", "email", False),
+    "weekly_report_hour": ("int:0:23", "email", False),
+    "github_token": ("str:255", "security", True),
     "exposure_interval_h": ("int:1:168", "security", False),
     "monitor_interval_s": ("int:20:3600", "security", False),
 }

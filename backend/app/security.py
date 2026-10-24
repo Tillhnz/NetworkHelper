@@ -11,6 +11,7 @@ from .database import get_db
 from .models import User
 
 bearer = HTTPBearer(auto_error=False)
+SESSION_COOKIE = "nh_session"
 
 
 def hash_password(password: str) -> str:
@@ -62,10 +63,14 @@ def current_user(
     db: Session = Depends(get_db),
 ) -> User:
     unauthorized = HTTPException(status.HTTP_401_UNAUTHORIZED, "Nicht angemeldet")
-    if creds is None:
+    token = creds.credentials if creds is not None else request.cookies.get(SESSION_COOKIE)
+    if not token:
         raise unauthorized
+    if creds is None and request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("x-nh-request") != "1":
+        # Schutz gegen untergeschobene Formulare fremder Seiten (CSRF): Die App schickt diesen Kopf immer mit
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Anfrage ohne Kennung der App abgelehnt")
     try:
-        payload = jwt.decode(creds.credentials, settings.secret_key, algorithms=["HS256"])
+        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
         if payload.get("typ"):
             raise unauthorized  # Zwischen-Nachweis der Anmeldung ist kein Zugang
         user = db.get(User, int(payload["sub"]))

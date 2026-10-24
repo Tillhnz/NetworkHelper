@@ -62,7 +62,7 @@ export default function Exposure({ isAdmin }) {
             </h2>
             <p className="muted">
               {d.last
-                ? <>Zuletzt geprüft {fmtAgo(d.last.finished)}: {fmtNum(d.hosts.length)} {d.hosts.length === 1 ? "Seite" : "Seiten"}, je {fmtNum(d.last.probes)} typische Angriffsziele
+                ? <>Zuletzt geprüft: {fmtAgo(d.last.finished)} · {fmtNum(d.hosts.length)} {d.hosts.length === 1 ? "Seite" : "Seiten"}, je {fmtNum(d.last.probes)} typische Angriffsziele
                   {d.log_hits.length > 0 && <> und {fmtNum(d.log_hits.length)} Adressen, die Angreifer bei dir erfolgreich aufgerufen haben</>}.</>
                 : "NetworkHelper ruft bei deinen eigenen Seiten die Adressen auf, die Angreifer typischerweise ausprobieren, und schaut, ob dort wirklich etwas Geheimes steht."}
               {!d.enabled && " Die regelmäßige Prüfung ist unter Administration → Sicherheit ausgeschaltet."}

@@ -6,11 +6,13 @@ import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { Country, EmptyState, Grade, Pill } from "../components/ui.jsx";
 import { IpDetail } from "./Access.jsx";
 import Exposure from "./SecurityExposure.jsx";
+import Apps from "./SecurityApps.jsx";
+import Geo from "./SecurityGeo.jsx";
 import { InfoTip, PageIntro, Term, useHelp } from "../components/help.jsx";
 import { GuideCard } from "../components/RouterGuide.jsx";
 import { CHECKLIST, GUIDES, guidesForPort, ROUTERS } from "../routerGuides.js";
 
-const TABS = [["ports", "Offene Ports"], ["router", "Router absichern"], ["sites", "Zertifikate & Header"], ["incidents", "Vorfälle"], ["exposure", "Angriffe gelungen?"], ["blocks", "Sperrliste"]];
+const TABS = [["ports", "Offene Ports"], ["router", "Router absichern"], ["sites", "Zertifikate & Header"], ["incidents", "Vorfälle"], ["exposure", "Angriffe gelungen?"], ["apps", "Apps aktuell?"], ["geo", "Länder & Listen"], ["blocks", "Sperrliste"]];
 
 function useWatch(load, running) {
   // Während ein Scan läuft, regelmäßig nachfragen
@@ -368,6 +370,8 @@ export default function Security({ user }) {
       {tab === "sites" && <Sites isAdmin={isAdmin} />}
       {tab === "incidents" && <Incidents isAdmin={isAdmin} onIp={setIp} />}
       {tab === "exposure" && <Exposure isAdmin={isAdmin} />}
+      {tab === "apps" && <Apps isAdmin={isAdmin} />}
+      {tab === "geo" && <Geo isAdmin={isAdmin} />}
       {tab === "blocks" && <Blocks isAdmin={isAdmin} />}
       {ip && <IpDetail ip={ip} onClose={() => setIp(null)} onFilter={(x) => { window.location.href = `/access?ip=${encodeURIComponent(x)}`; }} isAdmin={isAdmin} />}
     </>

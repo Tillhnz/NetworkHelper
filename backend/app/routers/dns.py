@@ -201,3 +201,32 @@ def npm_create(data: FqdnIn, admin: User = Depends(require_admin), db: Session =
     if done:
         audit.record(db, admin.email, "dns.npm", ", ".join(d["fqdn"] for d in done)[:290])
     return {"created": done, "errors": errors}
+
+
+# ---------- Domain-Schutz (SPF, DMARC, Null-MX, CAA) ----------
+
+@router.get("/protection")
+def protection(refresh: bool = False, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from .. import domainguard
+    data = state.get(db, "domainguard")
+    if (refresh or not data) and porkbun.configured():
+        data = domainguard.run(db)
+    return {"configured": porkbun.configured(), **(data or {"domains": [], "checked": None})}
+
+
+@router.post("/protection/{domain}/{key}", status_code=201)
+def protection_fix(domain: str, key: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from .. import domainguard
+    domain = domain.lower()
+    if domain not in [d.lower() for d in porkbun.managed_domains()]:
+        raise HTTPException(404, "Diese Domain verwaltet NetworkHelper nicht")
+    current = domainguard.analyze(domain, porkbun.records(domain))
+    check = next((c for c in current["checks"] if c.get("fix") == key and not c["ok"]), None)
+    if check is None:
+        raise HTTPException(409, "Für diese Domain ist dieser Eintrag nicht (mehr) nötig")
+    try:
+        domainguard.apply_fix(domain, key)
+    except porkbun.PorkbunError as e:
+        raise HTTPException(502, str(e))
+    audit.record(db, admin.email, "dns.protect", f"{domain}: {key}")
+    return domainguard.run(db)

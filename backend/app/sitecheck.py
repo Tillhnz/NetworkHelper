@@ -19,6 +19,7 @@ from .models import SiteCheck
 log = logging.getLogger("networkhelper.sites")
 
 PENALTY = {
+    "npm_default": 50,
     "cert_valid": 60, "cert_days": 40, "tls_version": 30, "redirect": 15, "hsts": 10,
     "nosniff": 5, "frame": 5, "csp": 5, "referrer": 3, "server_leak": 2,
 }
@@ -69,6 +70,11 @@ def _cert_info(host: str, port: int = 443, timeout: float = 8) -> dict:
     return out
 
 
+def is_npm_default_page(html: str) -> bool:
+    """Standardseite des Nginx Proxy Managers für unbekannte Namen."""
+    return "Congratulations!" in html and "Nginx Proxy Manager" in html
+
+
 def check_host(host: str) -> dict:
     checks = []
 
@@ -101,6 +107,9 @@ def check_host(host: str) -> dict:
         r = httpx.get(f"https://{host}/", follow_redirects=True, timeout=12, verify=cert["valid"], max_redirects=5)
         h = {k.lower(): v for k, v in r.headers.items()}
         result["status"] = r.status_code
+        default_page = is_npm_default_page(r.text[:20000])
+        add("npm_default", "Proxy Manager kennt diesen Namen", not default_page,
+            "Liefert nur die Standardseite „Congratulations!“: Proxy Host fehlt, ist deaktiviert oder offline" if default_page else "eigener Inhalt")
         hsts = h.get("strict-transport-security", "")
         m = re.search(r"max-age=(\d+)", hsts)
         add("hsts", "HSTS gesetzt (mind. 6 Monate)", bool(m and int(m.group(1)) >= 15552000), hsts[:80] or "fehlt")
@@ -140,6 +149,12 @@ def run(db: Session, hosts: list[str] | None = None) -> int:
         for k in ("grade", "score", "cert_expires", "cert_issuer", "cert_valid", "tls_version", "https_redirect", "status", "error"):
             setattr(row, k, res[k])
         row.checks = json.dumps(res["checks"])
+        if any(c["key"] == "npm_default" and not c["ok"] for c in res["checks"]):
+            notify.raise_alert(db, "warn", "site", f"{row.host} zeigt nur die Standardseite des Proxy Managers",
+                               "Die Anfrage kommt beim Nginx Proxy Manager an, er kennt den Namen aber nicht.\n"
+                               "Prüfe im Proxy Manager unter Hosts → Proxy Hosts: Gibt es den Namen genau so, steht er auf „Online“ "
+                               "und ist für HTTPS ein Zertifikat ausgewählt? Zeigt die Portfreigabe auf den richtigen Container?",
+                               dedupe_key=f"npm-default:{row.host}", dedupe_hours=72)
         if res["cert_expires"]:
             days = (res["cert_expires"] - now).days
             if not res["cert_valid"]:

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useHelp } from "../components/help.jsx";
-import { api, setToken } from "../api.js";
+import { api } from "../api.js";
 import { Segmented, Switch } from "../components/controls.jsx";
 import { toast } from "../components/feedback.jsx";
 import { getTheme, setTheme } from "../theme.js";
@@ -21,14 +21,13 @@ export default function Settings({ user, onChange, onLogout }) {
     e.preventDefault();
     setError("");
     try {
-      const r = await api.put("/auth/password", pw);
-      setToken(r.access_token);
+      await api.put("/auth/password", pw);
       setPw({ current_password: "", new_password: "" });
       toast("Passwort geändert. Andere Geräte sind abgemeldet.");
     } catch (err) { setError(err.message); }
   }
   async function logoutAll() {
-    try { const r = await api.post("/auth/logout-all", {}); setToken(r.access_token); toast("Alle anderen Geräte sind abgemeldet."); } catch (e) { toast(e.message, "error"); }
+    try { const r = await api.post("/auth/logout-all", {}); toast("Alle anderen Geräte sind abgemeldet."); } catch (e) { toast(e.message, "error"); }
   }
 
   return (

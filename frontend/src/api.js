@@ -1,20 +1,29 @@
-const TOKEN_KEY = "networkhelper_token";
-
-export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } };
-export const setToken = (t) => { try { localStorage.setItem(TOKEN_KEY, t); } catch { /* privater Modus */ } };
-export const clearToken = () => { try { localStorage.removeItem(TOKEN_KEY); } catch { /* privater Modus */ } };
+// Die Anmeldung steckt in einem HttpOnly-Cookie, das Skripte nicht lesen können. Früher lag sie im Browser-Speicher;
+// eine solche alte Anmeldung wird einmal ins Cookie übernommen und dann gelöscht.
+const LEGACY_KEY = "networkhelper_token";
 
 let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => (onUnauthorized = fn);
 
+export async function migrateLegacySession() {
+  let token = null;
+  try { token = localStorage.getItem(LEGACY_KEY); } catch { /* privater Modus */ }
+  if (!token) return;
+  try { localStorage.removeItem(LEGACY_KEY); } catch { /* egal */ }
+  try {
+    await fetch("/api/auth/session", { method: "POST", headers: { Authorization: `Bearer ${token}`, "X-NH-Request": "1" }, credentials: "same-origin" });
+  } catch { /* dann eben neu anmelden */ }
+}
+
+export async function logoutRequest() {
+  try { await fetch("/api/auth/logout", { method: "POST", headers: { "X-NH-Request": "1" }, credentials: "same-origin" }); } catch { /* egal */ }
+}
+
 async function request(method, path, body) {
-  const headers = {};
+  const headers = { "X-NH-Request": "1" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`/api${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
-  if (res.status === 401 && path !== "/auth/login") {
-    clearToken();
+  const res = await fetch(`/api${path}`, { method, headers, credentials: "same-origin", body: body !== undefined ? JSON.stringify(body) : undefined });
+  if (res.status === 401 && !path.startsWith("/auth/login")) {
     onUnauthorized();
   }
   if (!res.ok) {

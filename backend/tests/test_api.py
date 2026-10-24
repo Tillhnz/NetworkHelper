@@ -452,3 +452,183 @@ def test_two_factor_flow(client, admin, monkeypatch):
     r = client.delete(f"/api/admin/users/{uid}/2fa", headers=admin).json()
     assert r["two_factor"] is False
     assert client.post("/api/auth/login", json={"email": "zwei@example.de", "password": "geheim1234"}).json()["access_token"]
+
+
+def test_cookie_session(client, admin):
+    r = client.post("/api/auth/register", json={"email": "keks@example.de", "password": "geheim1234"})
+    if r.status_code != 201:
+        inv = client.post("/api/admin/invites", headers=admin).json()["code"]
+        r = client.post("/api/auth/register", json={"email": "keks@example.de", "password": "geheim1234", "invite": inv})
+    client.cookies.clear()
+    r = client.post("/api/auth/login", json={"email": "keks@example.de", "password": "geheim1234"})
+    sc = r.headers["set-cookie"]
+    assert "nh_session=" in sc and "HttpOnly" in sc and "samesite=strict" in sc.lower() and "Path=/api" in sc
+    assert client.get("/api/me").json()["email"] == "keks@example.de"  # nur mit Cookie
+    # Ändernde Anfragen per Cookie brauchen den App-Kopf (Schutz gegen fremde Formulare)
+    assert client.put("/api/me/alerts", json={"alert_email": True}).status_code == 403
+    assert client.put("/api/me/alerts", json={"alert_email": True}, headers={"X-NH-Request": "1"}).status_code == 200
+    assert client.post("/api/auth/logout", headers={"X-NH-Request": "1"}).status_code == 204
+    assert client.get("/api/me").status_code == 401
+    # Alte, im Browser gespeicherte Anmeldung wird ins Cookie übernommen
+    tok = client.post("/api/auth/login", json={"email": "keks@example.de", "password": "geheim1234"}).json()["access_token"]
+    client.cookies.clear()
+    assert "nh_session=" in client.post("/api/auth/session", headers={"Authorization": f"Bearer {tok}"}).headers["set-cookie"]
+    assert client.get("/api/me").status_code == 200
+
+
+def test_app_versions_endpoint(client, admin, monkeypatch):
+    from app import appversions as av
+    from app.models import SiteCheck
+    with SessionLocal() as db:
+        db.merge(SiteCheck(host="jelly.example.de", enabled=True))
+        db.merge(SiteCheck(host="cloud2.example.de", enabled=True))
+        db.commit()
+    found = {"jelly.example.de": {"app": "jellyfin", "version": "10.9.10"}, "cloud2.example.de": {"app": "nextcloud", "version": "30.0.2"}}
+    monkeypatch.setattr(av, "detect_host", lambda host, client: found.get(host))
+    monkeypatch.setattr(av, "npm_version", lambda: None)
+
+    def gh(path):
+        if path.endswith("/releases/latest"):
+            return {"tag_name": "v10.10.3" if "jellyfin" in path else "v30.0.2", "html_url": "https://github.com/x"}
+        if "jellyfin" in path:
+            return [{"ghsa_id": "GHSA-abcd", "summary": "Pfad-Traversal", "severity": "high", "html_url": "https://g/a", "cve_id": "CVE-2026-1",
+                     "vulnerabilities": [{"package": {"name": "jellyfin"}, "vulnerable_version_range": "< 10.9.11", "patched_versions": "10.9.11"}]}]
+        return []
+    monkeypatch.setattr(av, "_gh", gh)
+    with SessionLocal() as db:
+        av.run(db)
+    d = client.get("/api/security/apps", headers=admin).json()
+    items = {i["host"]: i for i in d["items"]}
+    assert items["jelly.example.de"]["status"] == "vulnerable" and items["jelly.example.de"]["advisories"][0]["id"] == "GHSA-abcd"
+    assert items["cloud2.example.de"]["status"] == "current"
+    with SessionLocal() as db:
+        assert db.query(Alert).filter(Alert.kind == "apps").count() == 1
+    reasons = client.get("/api/overview", headers=admin).json()["security"]["reasons"]
+    assert any(r["area"] == "apps" and r["level"] == "crit" for r in reasons)
+
+
+def _new_agent(client, admin, name):
+    r = client.post("/api/agents", headers=admin, json={"name": name})
+    return {"Authorization": f"Bearer {r.json()['token']}"}, r.json()["id"]
+
+
+def test_host_watch(client, admin):
+    ah, aid = _new_agent(client, admin, "Proxmox-Host")
+    st = lambda listening: client.post("/api/agent/state", headers=ah, json={  # noqa: E731
+        "hostname": "pve", "version": "1.1.0", "info": {}, "established": [], "listening": listening})
+    r = st([{"proto": "tcp", "addr": "0.0.0.0", "port": 22, "process": "sshd"}]).json()
+    assert r["agent_version"] and r["http_conf_hash"] is None
+    base = {"users": [{"name": "root", "uid": 0, "shell": "/bin/bash", "admin": True}],
+            "files": {"/etc/passwd": "a", "/root/.ssh/authorized_keys": "b", "/etc/crontab": "c"}, "proxmox": True,
+            "logins": [{"ts": 1729700000, "user": "root", "ip": "192.168.1.5", "method": "publickey", "service": "ssh"}], "failures": {}}
+    assert client.post("/api/agent/watch", headers=ah, json=base).status_code == 200
+    w = client.get(f"/api/agents/{aid}/watch", headers=admin).json()
+    assert w["active"] and w["proxmox"] and w["open"] == [] and len(w["logins"]) == 1  # erster Bericht: nur merken
+    # Änderungen
+    nxt = {**base, "users": base["users"] + [{"name": "eve", "uid": 1001, "shell": "/bin/bash", "admin": True}],
+           "files": {**base["files"], "/root/.ssh/authorized_keys": "NEU", "/etc/cron.d/x": "d"},
+           "logins": [{"ts": 1729700100, "user": "root", "ip": "45.9.9.9", "method": "password", "service": "ssh"}],
+           "failures": {"45.9.9.10": 25}}
+    client.post("/api/agent/watch", headers=ah, json=nxt)
+    st([{"proto": "tcp", "addr": "0.0.0.0", "port": 22, "process": "sshd"}, {"proto": "tcp", "addr": "0.0.0.0", "port": 4444, "process": "nc"},
+        {"proto": "tcp", "addr": "0.0.0.0", "port": 51000, "process": "x"}])
+    w = client.get(f"/api/agents/{aid}/watch", headers=admin).json()
+    kinds = {e["kind"]: e for e in w["open"]}
+    assert kinds["user_new"]["severity"] == "crit" and "eve" in kinds["user_new"]["title"]
+    assert kinds["file_changed"]["severity"] == "crit" and "authorized_keys" in kinds["file_changed"]["detail"]
+    assert kinds["file_new"]["severity"] == "warn"
+    assert kinds["login"]["severity"] == "crit" and "45.9.9.9" in kinds["login"]["title"]
+    assert "login_fail" in kinds and "port_new" in kinds and "4444" in kinds["port_new"]["title"]
+    assert not any("51000" in e["title"] for e in w["open"])  # flüchtige Ports nicht melden
+    with SessionLocal() as db:
+        assert db.query(Alert).filter(Alert.kind == "host").count() >= 5
+    reasons = client.get("/api/overview", headers=admin).json()["security"]["reasons"]
+    assert any(r["area"] == "host" and r["level"] == "crit" for r in reasons)
+    assert client.put(f"/api/watch/events/{kinds['user_new']['id']}", headers=admin, json={"acknowledged": True}).json()["acknowledged"]
+    assert client.post(f"/api/agents/{aid}/watch/ack-all", headers=admin).json()["acknowledged"] >= 4
+    assert client.get(f"/api/agents/{aid}/watch", headers=admin).json()["open"] == []
+    # gleicher Stand noch einmal (ohne neue Anmeldungen): nichts Neues
+    client.post("/api/agent/watch", headers=ah, json={**nxt, "logins": [], "failures": {}})
+    assert client.get(f"/api/agents/{aid}/watch", headers=admin).json()["open"] == []
+
+
+def test_geo_rules_and_agent_conf(client, admin, monkeypatch):
+    from app import geoblock
+    from app.models import AccessEvent
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        for ip, cc, ua, n in [("91.1.1.1", "DE", "Mozilla/5.0 (Windows NT 10.0) Chrome/130 Safari/537.36", 5), ("45.2.2.2", "RU", "zgrab", 7),
+                              ("83.3.3.3", "ES", "Nextcloud-android/3.29", 4)]:
+            for i in range(n):
+                db.add(AccessEvent(ts=now - timedelta(minutes=i), host="geo.example.de", method="GET", path="/", status=200, bytes=1,
+                                   ip=ip, country=cc, as_org="X", user_agent=ua))
+        db.add(AccessEvent(ts=now, host="geo.example.de", method="GET", path="/.well-known/acme-challenge/t", status=200, bytes=1,
+                           ip="23.1.1.1", country="US", as_org="Let's Encrypt", user_agent="LE"))
+        db.commit()
+    p = client.post("/api/security/geo/preview", headers=admin, json={"host": "geo.example.de", "countries": ["DE"]}).json()
+    assert p["total"] == 16 and p["blocked"] == 11 and p["countries"][0]["country"] == "RU"
+    assert [a["who"] for a in p["affected_users"]] == ["Nextcloud"]  # eigene Nutzerin im Urlaub wäre betroffen
+    assert client.post("/api/security/geo/rules", headers=admin, json={"host": "ungültig host", "countries": ["DE"]}).status_code == 422
+    r = client.post("/api/security/geo/rules", headers=admin, json={"host": "geo.example.de", "countries": ["de", "es"]})
+    assert r.status_code == 201 and r.json()["countries"] == ["DE", "ES"]
+    assert client.post("/api/security/geo/rules", headers=admin, json={"host": "geo.example.de", "countries": ["DE"]}).status_code == 409
+    monkeypatch.setattr(geoblock, "country_networks", lambda cc: {"DE": ["5.0.0.0/16"], "ES": ["83.0.0.0/11"]})
+    geoblock.invalidate()
+    ah, _ = _new_agent(client, admin, "NPM-Geo")
+    res = client.post("/api/agent/state", headers=ah, json={"hostname": "npm", "version": "1.1.0", "info": {}, "established": [], "listening": []}).json()
+    assert res["http_conf_hash"] and "return 444" in res["server_snippet"]
+    conf = client.get("/api/agent/http-conf", headers=ah).text
+    assert "5.0.0.0/16 DE;" in conf and "geo\\.example\\.de\\|(DE|ES|LAN)$" in conf
+    assert client.get("/api/agent/http-conf").status_code == 401
+    rid = r.json()["id"]
+    client.delete(f"/api/security/geo/rules/{rid}", headers=admin)
+    res2 = client.post("/api/agent/state", headers=ah, json={"hostname": "npm", "version": "1.1.0", "info": {}, "established": [], "listening": []}).json()
+    assert res2["http_conf_hash"] is None and res2["blocklist_hash"] != res["blocklist_hash"]
+    g = client.get("/api/security/geo", headers=admin).json()
+    assert {f["key"] for f in g["feeds"]} == {"spamhaus", "firehol"} and g["rules"] == []
+
+
+def test_weekly_report(client, admin, monkeypatch):
+    from app import report
+    from app.config import settings as cfg
+    p = client.get("/api/admin/report/preview", headers=admin).json()
+    assert p["title"].startswith("NetworkHelper Wochenbericht") and "Sicherheit:" in p["body"] and "Die letzte Woche" in p["body"]
+    sent = []
+    monkeypatch.setattr(report.notify, "send_email", lambda to, t, b: sent.append((to, t)))
+    monkeypatch.setattr(report.notify, "smtp_configured", lambda: True)
+    monkeypatch.setattr(cfg, "weekly_report", True)
+    monkeypatch.setattr(cfg, "weekly_report_day", 0)
+    monkeypatch.setattr(cfg, "weekly_report_hour", 8)
+    monday_7 = datetime(2026, 10, 26, 6, 0)  # 07:00 Berlin (MEZ): noch zu früh
+    monday_9 = datetime(2026, 10, 26, 8, 30)  # 09:30 Berlin
+    with SessionLocal() as db:
+        assert report.run(db, now=datetime(2026, 10, 27, 8, 30)) is False  # Dienstag
+        assert report.run(db, now=monday_7) is False
+        assert report.run(db, now=monday_9) is True
+        assert report.run(db, now=monday_9 + timedelta(hours=2)) is False  # nur einmal pro Woche
+    assert len(sent) == 1 and "admin@example.de" in sent[0][0]
+
+
+def test_domain_protection(client, admin, monkeypatch):
+    from app import porkbun
+    recs = {"example.de": [{"id": "1", "name": "", "type": "A", "content": "1.2.3.4"}]}
+    created = []
+    monkeypatch.setattr(porkbun, "configured", lambda: True)
+    monkeypatch.setattr(porkbun, "managed_domains", lambda: ["example.de"])
+    monkeypatch.setattr(porkbun, "records", lambda d: recs[d])
+
+    def create(domain, name, rtype, content, ttl=600, notes=None, prio=None):
+        created.append((name, rtype, content, prio))
+        recs[domain].append({"id": str(len(recs[domain]) + 1), "name": name, "type": rtype, "content": content})
+        return "x"
+    monkeypatch.setattr(porkbun, "create", create)
+    d = client.get("/api/dns/protection?refresh=true", headers=admin).json()
+    assert d["domains"][0]["open"] == 2  # SPF und DMARC (Null-MX und CAA sind nur Empfehlungen)
+    reasons = client.get("/api/overview", headers=admin).json()["security"]["reasons"]
+    assert sum(1 for r in reasons if r["area"] == "domain") == 2
+    for key in ("spf", "dmarc", "null_mx", "caa"):
+        assert client.post(f"/api/dns/protection/example.de/{key}", headers=admin).status_code == 201
+    assert ("", "MX", ".", "0") in created and ("_dmarc", "TXT", "v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s", None) in created
+    assert client.post("/api/dns/protection/example.de/spf", headers=admin).status_code == 409  # schon gesetzt
+    assert client.post("/api/dns/protection/fremd.de/spf", headers=admin).status_code == 404
+    assert client.get("/api/dns/protection", headers=admin).json()["domains"][0]["ok"] is True

@@ -76,10 +76,12 @@ def records(domain: str) -> list[dict]:
     return out
 
 
-def create(domain: str, name: str, rtype: str, content: str, ttl: int = 600, notes: str | None = None) -> str:
+def create(domain: str, name: str, rtype: str, content: str, ttl: int = 600, notes: str | None = None, prio: str | None = None) -> str:
     body = {"name": name, "type": rtype, "content": content, "ttl": str(ttl)}
     if notes:
         body["notes"] = notes
+    if prio is not None:
+        body["prio"] = str(prio)
     return str(_post(f"/dns/create/{domain}", body).get("id"))
 
 

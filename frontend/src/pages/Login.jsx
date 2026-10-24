@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, setToken } from "../api.js";
+import { api } from "../api.js";
 import ThemeToggle from "../components/ThemeToggle.jsx";
 
 export default function Login({ onLoggedIn }) {
@@ -32,7 +32,6 @@ export default function Login({ onLoggedIn }) {
         setPassword("");
         return;
       }
-      setToken(r.access_token);
       await onLoggedIn();
       navigate("/");
     } catch (err) {
@@ -47,8 +46,7 @@ export default function Login({ onLoggedIn }) {
     setError("");
     setBusy(true);
     try {
-      const r = await api.post("/auth/login/2fa", { challenge, code });
-      setToken(r.access_token);
+      await api.post("/auth/login/2fa", { challenge, code });
       await onLoggedIn();
       navigate("/");
     } catch (err) {

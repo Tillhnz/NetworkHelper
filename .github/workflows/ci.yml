@@ -23,6 +23,11 @@ jobs:
         run: ruff check --select F,E9 app tests ../agent ../updater
       - name: Tests (SQLite)
         run: python -m pytest -q
+      - name: Erzeugte nginx-Konfiguration (Länder- und Listen-Sperren) mit echtem nginx prüfen
+        run: |
+          python ../tools/nginx_selftest.py /tmp/nhconf > /dev/null
+          docker run --rm -v /tmp/nhconf:/t:ro nginx:1.27-alpine nginx -t -c /t/nginx.conf
+          docker run --rm -v /tmp/nhconf:/t:ro openresty/openresty:alpine openresty -t -c /t/nginx.conf
 
   backend-postgres:
     runs-on: ubuntu-latest

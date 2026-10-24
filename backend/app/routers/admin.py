@@ -156,9 +156,34 @@ def save_settings(data: SettingsIn, admin: User = Depends(require_admin), db: Se
     if ("geoip_enabled" in data.values or "geoip_city" in data.values) and settings.geoip_enabled:
         geoip.reload()  # Städte aus- oder einschalten wirkt sofort
         scheduler.trigger("maintenance")
+    if any(k.startswith("feed_") for k in data.values):
+        from .. import geoblock
+        geoblock.invalidate()
+        scheduler.trigger("feeds")
     if any(k.startswith("npm_") for k in data.values) and npm.configured():
         scheduler.trigger("npm_sync")
     return _settings_payload(db)
+
+
+@router.get("/report/preview")
+def report_preview(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from .. import report
+    title, body = report.build(db)
+    return {"title": title, "body": body}
+
+
+@router.post("/report/send")
+def report_send(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Wochenbericht sofort an das eigene Konto schicken."""
+    from .. import report
+    if not notify.smtp_configured():
+        raise HTTPException(409, "Der E-Mail-Versand ist noch nicht eingerichtet.")
+    title, body = report.build(db)
+    try:
+        notify.send_email(admin.email, title, body)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Versand fehlgeschlagen: {e}")
+    return {"sent_to": admin.email}
 
 
 @router.post("/settings/test-email")

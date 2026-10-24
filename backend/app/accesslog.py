@@ -139,6 +139,8 @@ def ingest(db: Session, lines: list[str], agent_id: int | None = None) -> tuple[
         if nets and ev["status"] == 403:
             addr = ipaddress.ip_address(ev["ip"])
             blocked = any(addr in n for n in nets) or None
+        if ev.get("status") == 444:
+            blocked = True  # vom Proxy Manager ohne Antwort abgewiesen (Länder- oder Listen-Sperre)
         rows.append(AccessEvent(agent_id=agent_id, country=country, asn=asn, as_org=org, blocked=blocked, **ev))
         ok += 1
     if rows:

@@ -90,6 +90,45 @@ class Agent(Base):
     parse_errors: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
+class GeoRule(Base):
+    """Nur Zugriffe aus diesen Ländern erlauben (je Hostname oder „*“ für alle)."""
+    __tablename__ = "geo_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host: Mapped[str] = mapped_column(String(253), unique=True)
+    countries: Mapped[str] = mapped_column(String(400))  # ISO-Codes, durch Komma getrennt
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WatchState(Base):
+    """Letzter bekannter Stand eines Servers (Vergleichsbasis): Benutzer, Dateiprüfsummen, lauschende Ports, bekannte Anmeldungen."""
+    __tablename__ = "watch_state"
+
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True)
+    users: Mapped[str | None] = mapped_column(Text, nullable=True)
+    files: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ports: Mapped[str | None] = mapped_column(Text, nullable=True)
+    known_logins: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    proxmox: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+
+class WatchEvent(Base):
+    """Auffälligkeit auf einem Server: Anmeldung, neuer Benutzer, geänderte Datei, neuer Port."""
+    __tablename__ = "watch_events"
+    __table_args__ = (Index("ix_watch_agent_ts", "agent_id", "ts"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"))
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    kind: Mapped[str] = mapped_column(String(20))  # login | login_fail | user_new | user_gone | admin_new | file_changed | file_new | file_gone | port_new | port_gone
+    severity: Mapped[str] = mapped_column(String(6), default="info")
+    title: Mapped[str] = mapped_column(String(200))
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class AccessEvent(Base):
     __tablename__ = "access_events"
     __table_args__ = (

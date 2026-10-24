@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .. import audit, detect, exposure, portscan, scheduler, state
+from .. import appversions, audit, detect, exposure, geoblock, portscan, scheduler, state
 from ..database import get_db
-from ..models import ExpectedPort, Exposure, Incident, PortFinding, SiteCheck, User
+from ..models import Agent, ExpectedPort, Exposure, GeoRule, Incident, PortFinding, SiteCheck, User
 from ..security import current_user, require_admin
 from ..server_settings import HOST_RE
 
@@ -262,3 +262,109 @@ def exposure_ack(eid: int, data: AckIn, admin: User = Depends(require_admin), db
     db.commit()
     audit.record(db, admin.email, "exposure.ack" if data.acknowledged else "exposure.unack", f"{row.host}{row.path}"[:290])
     return _exposure_out(row)
+
+
+# ---------- Apps aktuell? ----------
+
+@router.get("/apps")
+def apps_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from ..config import settings
+    data = state.get(db, "appversions") or {}
+    return {"enabled": settings.app_check_enabled, "running": scheduler.JOBS["appversions"].running, "checked": data.get("checked"),
+            "items": data.get("items", []), "known_apps": [a.name for a in appversions.APPS]}
+
+
+@router.post("/apps/check", status_code=202)
+def apps_check(admin: User = Depends(require_admin)):
+    return {"started": scheduler.trigger("appversions")}
+
+
+# ---------- Länder sperren und Sperrlisten ----------
+
+def _rule_out(r: GeoRule) -> dict:
+    return {"id": r.id, "host": r.host, "countries": geoblock.parse_countries(r.countries), "enabled": r.enabled,
+            "created_at": r.created_at.isoformat() if r.created_at else None}
+
+
+@router.get("/geo")
+def geo_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from ..config import settings
+    rules = db.scalars(select(GeoRule).order_by(GeoRule.host)).all()
+    agents = [{"name": a.name, "enforce": bool(a.enforce_blocks), "status": a.block_status, "version": a.version}
+              for a in db.scalars(select(Agent).order_by(Agent.id)) if a.log_files and a.log_files != "[]"]
+    feeds = []
+    for key, f in geoblock.FEEDS.items():
+        st = state.get(db, f"feed:{key}") or {}
+        feeds.append({"key": key, "name": f["name"], "about": f["about"], "enabled": bool(getattr(settings, f"feed_{key}", False)),
+                      "count": len(st.get("nets", [])), "fetched": st.get("fetched"), "errors": st.get("errors", [])})
+    hosts = list(db.scalars(select(SiteCheck.host).order_by(SiteCheck.host)))
+    return {"rules": [_rule_out(r) for r in rules], "feeds": feeds, "agents": agents, "hosts": hosts,
+            "geoip": bool(settings.geoip_enabled), "running": scheduler.JOBS["feeds"].running}
+
+
+class GeoRuleIn(BaseModel):
+    host: str = Field(min_length=1, max_length=253)
+    countries: list[str] = Field(min_length=1, max_length=60)
+    enabled: bool = True
+
+
+def _check_rule(data: GeoRuleIn) -> tuple[str, list[str]]:
+    host = data.host.strip().lower()
+    if host != "*" and not HOST_RE.match(host):
+        raise HTTPException(422, "Bitte einen Hostnamen wie cloud.example.de oder * für alle angeben")
+    countries = geoblock.parse_countries(",".join(data.countries))
+    if not countries:
+        raise HTTPException(422, "Bitte mindestens ein Land angeben (zweistelliger Code, z. B. DE)")
+    return host, countries
+
+
+@router.post("/geo/rules", status_code=201)
+def geo_add(data: GeoRuleIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    host, countries = _check_rule(data)
+    if db.scalar(select(GeoRule).where(GeoRule.host == host)):
+        raise HTTPException(409, "Für diesen Hostnamen gibt es schon eine Regel")
+    r = GeoRule(host=host, countries=",".join(countries), enabled=data.enabled)
+    db.add(r)
+    db.commit()
+    geoblock.invalidate()
+    audit.record(db, admin.email, "geo.add", f"{host}: {','.join(countries)}")
+    return _rule_out(r)
+
+
+@router.put("/geo/rules/{rule_id}")
+def geo_update(rule_id: int, data: GeoRuleIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    r = db.get(GeoRule, rule_id)
+    if r is None:
+        raise HTTPException(404, "Regel nicht gefunden")
+    host, countries = _check_rule(data)
+    r.host, r.countries, r.enabled = host, ",".join(countries), data.enabled
+    db.commit()
+    geoblock.invalidate()
+    audit.record(db, admin.email, "geo.update", f"{host}: {','.join(countries)} {'an' if data.enabled else 'aus'}")
+    return _rule_out(r)
+
+
+@router.delete("/geo/rules/{rule_id}", status_code=204)
+def geo_delete(rule_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    r = db.get(GeoRule, rule_id)
+    if r is None:
+        raise HTTPException(404, "Regel nicht gefunden")
+    db.delete(r)
+    db.commit()
+    geoblock.invalidate()
+    audit.record(db, admin.email, "geo.delete", r.host)
+
+
+class PreviewIn(BaseModel):
+    host: str = Field(min_length=1, max_length=253)
+    countries: list[str] = Field(default_factory=list, max_length=60)
+
+
+@router.post("/geo/preview")
+def geo_preview(data: PreviewIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return geoblock.preview(db, data.host.strip().lower(), geoblock.parse_countries(",".join(data.countries)))
+
+
+@router.post("/geo/feeds/refresh", status_code=202)
+def geo_feeds_refresh(admin: User = Depends(require_admin)):
+    return {"started": scheduler.trigger("feeds")}

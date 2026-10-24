@@ -98,6 +98,22 @@ export const GLOSSARY = {
     title: "Programm (User-Agent)",
     text: "Womit jemand zugreift, zum Beispiel ein Browser, die Nextcloud-App oder ein Skript. Angriffswerkzeuge verraten sich hier oft selbst.",
   },
+  domain_guard: {
+    title: "Domain-Schutz",
+    text: "Im DNS deiner Domain kannst du festlegen, wer in ihrem Namen E-Mails verschicken darf (SPF), was Empfänger mit Fälschungen tun sollen (DMARC) und welche Stelle Zertifikate ausstellen darf (CAA). Fehlen diese Einträge, können Betrüger Mails mit deiner Domain als Absender verschicken. Für Domains ohne Postfach setzt NetworkHelper die strengen Werte per Klick bei Porkbun.",
+  },
+  host_watch: {
+    title: "Wachsamkeit",
+    text: "Der Agent schaut alle 5 Minuten auf seinem Server nach: Wer hat sich angemeldet? Gibt es neue Benutzerkonten oder Administratoren? Haben sich wichtige Systemdateien geändert, etwa die Liste der erlaubten SSH-Schlüssel, sudo-Rechte oder geplante Aufgaben (cron)? Lauscht ein neues Programm auf einem Port? Beim ersten Mal merkt er sich nur den Stand. Jede spätere Änderung erscheint hier. Warst du es selbst, klickst du auf „War ich“. Inhalte von Dateien verlassen den Server nie, nur Prüfsummen.",
+  },
+  geo_block: {
+    title: "Länder sperren",
+    text: "Für einen Heimserver kommen echte Besucher meist aus wenigen Ländern. Erlaubst du nur diese, weist der Proxy Manager alle anderen ab, bevor sie deine Apps überhaupt erreichen. Das hält einen Großteil der automatischen Angriffe fern. Nachteil: Bist du selbst im Urlaub im Ausland, kommst du dann auch nicht hinein, außer per VPN. Die Vorschau zeigt vorher, wen es getroffen hätte.",
+  },
+  app_versions: {
+    title: "Apps aktuell?",
+    text: "Viele Apps verraten ihre Versionsnummer, ohne dass man sich anmelden muss. NetworkHelper liest sie zweimal am Tag ab und vergleicht sie mit der neuesten Version auf GitHub und mit den dort veröffentlichten Sicherheitswarnungen. Rot heißt: Für deine Version ist eine Lücke bekannt, bitte bald aktualisieren.",
+  },
   two_factor: {
     title: "Zwei-Faktor-Anmeldung",
     text: "Neben dem Passwort brauchst du beim Anmelden einen zweiten Nachweis: einen 6-stelligen Code, den eine App auf deinem Handy alle 30 Sekunden neu erzeugt. Wer nur dein Passwort kennt, kommt so nicht hinein. Für den Notfall gibt es Wiederherstellungscodes, die du sicher ablegst.",

@@ -348,6 +348,23 @@ const EMAIL = [
   { key: "alert_min_severity", type: "select", label: "Mailen ab", options: [["info", "Hinweis (alles)"], ["warn", "Warnung"], ["crit", "Nur kritisch"]] },
   { key: "smtp_starttls", type: "bool", label: "Verbindung mit STARTTLS verschlüsseln (Port 587)" },
 ];
+const REPORT = [
+  { key: "weekly_report", type: "bool", label: "Wochenbericht per E-Mail schicken", hint: "Eine kurze Zusammenfassung: Sicherheitsstand, was los war und was du dir ansehen solltest." },
+  { key: "weekly_report_day", type: "select", label: "Tag", options: [["0", "Montag"], ["1", "Dienstag"], ["2", "Mittwoch"], ["3", "Donnerstag"], ["4", "Freitag"], ["5", "Samstag"], ["6", "Sonntag"]] },
+  { key: "weekly_report_hour", type: "number", label: "Uhrzeit (Stunde)", min: 0, max: 23 },
+];
+
+function ReportPreview() {
+  const [p, setP] = useState(null);
+  return (
+    <div className="actions">
+      <button className="btn" onClick={async () => { try { setP(await api.get("/admin/report/preview")); } catch (e) { toast(e.message, "error"); } }}>Vorschau ansehen</button>
+      <TestButton label="Jetzt an mich senden" path="/admin/report/send" describe={(r) => `Gesendet an ${r.sent_to}.`} />
+      {p && <pre className="report-preview"><strong>{p.title}</strong>{"\n\n"}{p.body}</pre>}
+    </div>
+  );
+}
+
 const DNS = [
   { key: "porkbun_api_key", type: "text", secret: true, label: "API-Schlüssel (pk1_…)" },
   { key: "porkbun_secret_key", type: "text", secret: true, label: "Secret (sk1_…)" },
@@ -371,6 +388,8 @@ const SECURITY = [
   { key: "scan_targets", type: "text", label: "Weitere Ziele", wide: true, placeholder: "z. B. vps.example.de", hint: "Die eigene öffentliche IP ist immer dabei." },
   { key: "shodan_enabled", type: "bool", label: "Shodan InternetDB fragen (sendet nur die öffentliche IP)" },
   { key: "site_check_interval_h", type: "number", label: "Zertifikate prüfen alle (Stunden)", min: 1, max: 168 },
+  { key: "app_check_enabled", type: "bool", label: "Apps auf Updates und bekannte Sicherheitslücken prüfen", hint: "Liest die Versionen deiner Apps ab und fragt zweimal am Tag bei GitHub nach neuen Versionen und Sicherheitswarnungen." },
+  { key: "github_token", type: "text", secret: true, label: "GitHub-Token (optional)", hint: "Nur nötig bei sehr vielen Apps: Ohne Token erlaubt GitHub 60 Abfragen pro Stunde. Ein Token ohne besondere Rechte reicht." },
   { key: "two_factor_required", type: "bool", label: "Zwei-Faktor-Anmeldung für alle Konten vorschreiben", hint: "Wer sie noch nicht hat, muss sie bei der nächsten Anmeldung einrichten, bevor es weitergeht. Geht erst, wenn dein eigenes Konto sie hat." },
   { key: "exposure_enabled", type: "bool", label: "Selbsttest auf lesbare Geheimnisse (.env, .git, Sicherungen …)", hint: "Ruft bei deinen eigenen Seiten die Adressen auf, die Angreifer ausprobieren, und prüft den Inhalt. Nur GET-Anfragen, nichts wird gespeichert." },
   { key: "exposure_interval_h", type: "number", label: "Selbsttest alle (Stunden)", min: 1, max: 168 },
@@ -417,6 +436,7 @@ export default function Admin({ user }) {
             spec: EMAIL,
             extra: <TestButton label="Testmail an mich" path="/admin/settings/test-email" describe={(r) => `Gesendet an ${r.to}.`} />,
           })}
+          {tab === "email" && block({ title: "Wochenbericht", spec: REPORT, extra: <ReportPreview /> })}
           {tab === "dns" && block({
             title: "Porkbun",
             intro: <>Schlüssel erzeugst du bei Porkbun unter <strong>Account → API Access</strong>. Danach bei jeder Domain unter <strong>Details</strong> „API Access“ einschalten.</>,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, fmtDate, setToken } from "../api.js";
+import { api, fmtDate } from "../api.js";
 import { confirmDialog, Loading, toast } from "./feedback.jsx";
 import { Pill } from "./ui.jsx";
 
@@ -70,7 +70,6 @@ export default function TwoFactor({ onChanged, forced = false }) {
     e.preventDefault();
     run(async () => {
       const r = await api.post("/me/2fa/enable", { code });
-      setToken(r.access_token);
       setCodes(r.recovery_codes); setSt(r.status); setCode(""); setStep("codes");
     });
   };
@@ -78,8 +77,7 @@ export default function TwoFactor({ onChanged, forced = false }) {
     e.preventDefault();
     run(async () => {
       if (!(await confirmDialog("Danach reicht wieder das Passwort allein zum Anmelden.", { title: "Zwei-Faktor-Anmeldung ausschalten?", confirmLabel: "Ausschalten" }))) return;
-      const r = await api.post("/me/2fa/disable", { password, code });
-      setToken(r.access_token); setSt(r.status); reset(); toast("Zwei-Faktor-Anmeldung ist aus."); onChanged?.();
+      const r = await api.post("/me/2fa/disable", { password, code }); setSt(r.status); reset(); toast("Zwei-Faktor-Anmeldung ist aus."); onChanged?.();
     });
   };
   const renew = (e) => {

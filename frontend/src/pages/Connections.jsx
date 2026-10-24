@@ -5,6 +5,7 @@ import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { CopyLine, Country, Dot, EmptyState, Pill, usePoll } from "../components/ui.jsx";
 import { IpDetail } from "./Access.jsx";
 import { GROUP_COLORS } from "../components/WorldMap.jsx";
+import HostWatch from "../components/HostWatch.jsx";
 import { InfoTip, PageIntro, Term } from "../components/help.jsx";
 
 function installCommand(server, token, enforce) {
@@ -147,6 +148,7 @@ function AgentCard({ a, isAdmin, onChanged, onIp }) {
           </div>
         </div>
       )}
+      {a.last_seen && <HostWatch agent={a} isAdmin={isAdmin} refreshKey={a.last_seen} />}
       {!a.last_seen && <p className="muted">Noch keine Verbindung. Führe den Installationsbefehl auf dem Server aus.</p>}
     </section>
   );
@@ -188,7 +190,7 @@ export default function Connections({ user }) {
         </form>
       )}
       {!agents ? <Loading rows={2} /> : agents.length === 0 ? (
-        <EmptyState title="Noch kein Agent" text="Lege einen Agenten an und führe den angezeigten Befehl auf dem LXC mit dem Nginx Proxy Manager aus." />
+        <EmptyState title="Noch kein Agent" text="Lege einen Agenten an und führe den angezeigten Befehl auf dem LXC mit dem Nginx Proxy Manager aus. Weitere Agenten auf anderen Servern (zum Beispiel direkt auf dem Proxmox-Host) passen dort auf Anmeldungen, Konten und wichtige Dateien auf." />
       ) : agents.map((a) => (
         <AgentCard key={a.id} a={a} isAdmin={isAdmin} onIp={setIp} onChanged={(r) => { if (r?.token) setCreated(r); load(); }} />
       ))}

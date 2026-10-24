@@ -10,7 +10,7 @@ from typing import Callable
 
 from sqlalchemy import delete, select
 
-from . import detect, dns, exposure, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
+from . import appversions, detect, dns, domainguard, exposure, geoblock, report, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
 from .config import settings
 from .database import SessionLocal
 from .models import AccessEvent, Agent, Alert, DynRecord, Incident, MonitorResult
@@ -79,11 +79,15 @@ FAST = [
     Job("detect", detect.run, lambda: 30, delay=30),
     Job("alerts", notify.send_pending, lambda: 60, delay=45),
     Job("agents", _agents, lambda: 120, delay=300),
+    Job("weekly_report", report.run, lambda: 900, lambda: settings.weekly_report, delay=600),
 ]
 SLOW = [
     Job("npm_sync", dns.sync_from_npm, lambda: 600, npm.configured, delay=40),
     Job("dyndns", dns.run_dyndns, lambda: settings.dyndns_interval_min * 60, _dyndns_enabled, delay=60),
     Job("sitecheck", sitecheck.run, lambda: settings.site_check_interval_h * 3600, delay=120),
+    Job("domainguard", domainguard.run, lambda: 24 * 3600, porkbun.configured, delay=150),
+    Job("feeds", geoblock.refresh_feeds, lambda: 24 * 3600, lambda: bool(geoblock.enabled_feeds()), delay=90),
+    Job("appversions", appversions.run, lambda: 12 * 3600, lambda: settings.app_check_enabled, delay=300),
     Job("exposure", exposure.run, lambda: settings.exposure_interval_h * 3600, lambda: settings.exposure_enabled, delay=240),
     Job("portscan", portscan.run, lambda: settings.scan_interval_h * 3600, lambda: settings.scan_enabled, delay=180),
     Job("maintenance", _maintenance, lambda: 6 * 3600, delay=5),

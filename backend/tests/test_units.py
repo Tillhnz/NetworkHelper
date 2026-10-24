@@ -144,3 +144,56 @@ def test_totp_rfc6238_and_recovery():
     rest = totp.use_recovery(stored, codes[3].lower().replace("-", " "))
     assert totp.recovery_left(rest) == 9 and totp.use_recovery(rest, codes[3]) is None
     assert "<svg" in totp.qr_svg(totp.uri(secret, "a@b.de"))
+
+
+def test_npm_default_page():
+    from app.sitecheck import is_npm_default_page
+    assert is_npm_default_page("<h1>Congratulations!</h1><p>You've successfully started the Nginx Proxy Manager.</p>")
+    assert not is_npm_default_page("<h1>Nextcloud</h1>")
+
+
+def test_app_versions_logic():
+    import httpx
+    from app import appversions as av
+    assert av.in_range("10.9.10", ">= 10.9.0, < 10.9.11") and not av.in_range("10.9.11", "< 10.9.11")
+    assert av.in_range("1.32.0", "<= 1.32.0") and not av.in_range("2.0", "< 1.5") and not av.in_range("1.0", "")
+    assert av.assess("1.2.3", "v1.2.3", []) == "current" and av.assess("1.2.3", "v1.2.4", []) == "patch"
+    assert av.assess("1.2.3", "1.3.0", []) == "minor" and av.assess("29.0.8", "v30.0.2", []) == "major"
+    assert av.assess("1.0", "1.0", [{"id": "x"}]) == "vulnerable" and av.assess(None, "1.0", []) == "unknown"
+    advs = [{"id": "GHSA-1", "summary": "XSS", "severity": "high", "url": "u", "cve": "CVE-1",
+             "vulns": [{"package": "jellyfin", "range": "< 10.9.11", "patched": "10.9.11"}]}]
+    assert [a["id"] for a in av.affecting(advs, "10.9.10")] == ["GHSA-1"] and av.affecting(advs, "10.10.0") == []
+    req = httpx.Request("GET", "https://x")
+    r = lambda j: httpx.Response(200, json=j, request=req)  # noqa: E731
+    assert av._nextcloud(r({"installed": True, "versionstring": "30.0.1", "productname": "Nextcloud"})) == "30.0.1"
+    assert av._jellyfin(r({"ProductName": "Jellyfin Server", "Version": "10.10.3"})) == "10.10.3"
+    assert av._immich(r({"major": 1, "minor": 120, "patch": 2})) == "1.120.2"
+    assert av._gitea(r({"version": "1.22.3"})) == "1.22.3" and av._gitea(r({"version": "9.0.1+gitea-1.22.0"})) is None
+    assert av._forgejo(r({"version": "9.0.1+gitea-1.22.0"})) == "9.0.1"
+    assert av._vaultwarden(r({"version": "2024.6.2", "server": {"name": "Vaultwarden", "version": "1.32.5"}})) == "1.32.5"
+    assert av._nextcloud(r({"Version": "1"})) is None
+
+
+def test_geoblock_helpers():
+    from app import geoblock
+    nets = geoblock.parse_feed('{"cidr":"1.10.16.0/20","sblid":"SBL1"}\n; Kommentar\n2.56.0.0/14 ; SBL2\n# x\n5.6.7.8\n{"type":"metadata"}')
+    assert nets == ["1.10.16.0/20", "2.56.0.0/14", "5.6.7.8/32"]
+    clean = geoblock.clean_networks(["10.0.0.0/8", "0.0.0.0/8", "1.10.16.0/20", "1.10.16.0/21", "84.130.20.0/24", "5.0.0.0/4", "fe80::/10", "2a00:1::/32"],
+                                    own_ip="84.130.20.50")
+    assert clean == ["1.10.16.0/20", "2a00:1::/32"]  # privat, zu groß, eigene Adresse raus; Überlappung zusammengefasst
+    assert geoblock.parse_countries("de, at;CH x DE") == ["DE", "AT", "CH"]
+
+
+def test_domainguard_analyze():
+    from app.domainguard import analyze
+    bare = analyze("example.de", [{"name": "", "type": "A", "content": "1.2.3.4"}])
+    fixes = {c["key"]: c["fix"] for c in bare["checks"] if not c["ok"]}
+    assert not bare["mail"] and fixes == {"null_mx": "null_mx", "spf": "spf", "dmarc": "dmarc", "caa": "caa"}
+    good = analyze("example.de", [{"name": "", "type": "MX", "content": ".", "prio": "0"}, {"name": "", "type": "TXT", "content": "v=spf1 -all"},
+                                  {"name": "_dmarc", "type": "TXT", "content": "v=DMARC1; p=reject"}, {"name": "", "type": "CAA", "content": '0 issue "letsencrypt.org"'}])
+    assert good["ok"]
+    mail = analyze("example.de", [{"name": "", "type": "MX", "content": "mx.mailbox.org", "prio": "10"}, {"name": "", "type": "CAA", "content": '0 issue "sectigo.com"'}])
+    c = {x["key"]: x for x in mail["checks"]}
+    assert mail["mail"] and c["dmarc"]["fix"] == "dmarc_monitor" and c["spf"]["fix"] is None and c["caa"]["severity"] == "crit"
+    loose = analyze("example.de", [{"name": "", "type": "TXT", "content": '"v=spf1 include:_spf.google.com ~all"'}])
+    assert next(x for x in loose["checks"] if x["key"] == "spf")["fix"] is None  # vorhandenen SPF nicht überschreiben

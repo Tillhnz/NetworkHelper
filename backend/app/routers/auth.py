@@ -2,7 +2,7 @@ import json
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -72,8 +72,17 @@ class OnboardingIn(BaseModel):
     show_hints: bool = False  # alle ausgeblendeten Hinweise wieder anzeigen
 
 
-def token_out(user: User) -> dict:
-    return {"access_token": create_token(user), "token_type": "bearer"}
+from ..security import SESSION_COOKIE as COOKIE  # noqa: E402
+
+
+def token_out(user: User, response: Response | None = None, request: Request | None = None) -> dict:
+    """Neue Sitzung. Der Browser bekommt sie als HttpOnly-Cookie (für Skripte unlesbar); das Token im JSON ist für API-Clients."""
+    token = create_token(user)
+    if response is not None:
+        secure = bool(request and (request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"))
+        response.set_cookie(COOKIE, token, max_age=settings.token_expire_days * 86400, httponly=True, samesite="strict",
+                            secure=secure, path="/api")
+    return {"access_token": token, "token_type": "bearer"}
 
 
 _DUMMY_HASH = hash_password("dummy-password-for-timing")
@@ -85,7 +94,7 @@ def public_config():
 
 
 @router.post("/auth/register", status_code=201)
-def register(data: RegisterIn, request: Request, db: Session = Depends(get_db)):
+def register(data: RegisterIn, request: Request, response: Response, db: Session = Depends(get_db)):
     ratelimit.check_register(ratelimit.client_ip(request))
     first_user = db.scalar(select(User.id).limit(1)) is None
     invite = None
@@ -104,11 +113,11 @@ def register(data: RegisterIn, request: Request, db: Session = Depends(get_db)):
     db.commit()
     if invite is not None:
         audit.record(db, data.email, "user.register", f"Einladung {invite.code}")
-    return token_out(user)
+    return token_out(user, response, request)
 
 
 @router.post("/auth/login")
-def login(data: Credentials, request: Request, db: Session = Depends(get_db)):
+def login(data: Credentials, request: Request, response: Response, db: Session = Depends(get_db)):
     ip = ratelimit.client_ip(request)
     ratelimit.check_login(data.email, ip)
     user = db.scalar(select(User).where(User.email == data.email))
@@ -122,7 +131,7 @@ def login(data: Credentials, request: Request, db: Session = Depends(get_db)):
         # Passwort stimmt, jetzt fehlt noch der Code aus der App. Fehlversuche zählen weiter, bis der Code stimmt.
         return {"two_factor": True, "challenge": create_challenge(user)}
     ratelimit.record_success(data.email)
-    return token_out(user)
+    return token_out(user, response, request)
 
 
 class SecondFactorIn(BaseModel):
@@ -148,7 +157,7 @@ def _check_second_factor(user: User, code: str, db: Session) -> str | None:
 
 
 @router.post("/auth/login/2fa")
-def login_second_factor(data: SecondFactorIn, request: Request, db: Session = Depends(get_db)):
+def login_second_factor(data: SecondFactorIn, request: Request, response: Response, db: Session = Depends(get_db)):
     user = read_challenge(data.challenge, db)
     if user is None or not user.totp_enabled:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Die Anmeldung ist abgelaufen. Bitte gib dein Passwort erneut ein.")
@@ -168,7 +177,7 @@ def login_second_factor(data: SecondFactorIn, request: Request, db: Session = De
                            f"Für das Konto {user.email} wurde ein Wiederherstellungscode benutzt. Übrig: {left}.\n"
                            "Warst du das nicht, ändere sofort das Passwort und richte die Zwei-Faktor-Anmeldung neu ein.",
                            dedupe_key=f"recovery:{user.id}:{left}", dedupe_hours=1)
-    return token_out(user)
+    return token_out(user, response, request)
 
 
 def check_password(user: User, password: str, request: Request) -> None:
@@ -180,19 +189,30 @@ def check_password(user: User, password: str, request: Request) -> None:
 
 
 @router.put("/auth/password")
-def change_password(data: PasswordChangeIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def change_password(data: PasswordChangeIn, request: Request, response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)):
     check_password(user, data.current_password, request)
     user.password_hash = hash_password(data.new_password)
     user.token_version = (user.token_version or 0) + 1
     db.commit()
-    return token_out(user)
+    return token_out(user, response, request)
 
 
 @router.post("/auth/logout-all")
-def logout_all(user: User = Depends(current_user), db: Session = Depends(get_db)):
+def logout_all(request: Request, response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)):
     user.token_version = (user.token_version or 0) + 1
     db.commit()
-    return token_out(user)
+    return token_out(user, response, request)
+
+
+@router.post("/auth/logout", status_code=204)
+def logout(response: Response):
+    response.delete_cookie(COOKIE, path="/api")
+
+
+@router.post("/auth/session")
+def session_from_token(request: Request, response: Response, user: User = Depends(current_user)):
+    """Übernimmt eine ältere, im Browser gespeicherte Anmeldung in das sichere Cookie."""
+    return token_out(user, response, request)
 
 
 @router.get("/me")
@@ -273,7 +293,7 @@ def two_factor_setup(data: TwoFactorSetupIn, request: Request, user: User = Depe
 
 
 @router.post("/me/2fa/enable")
-def two_factor_enable(data: CodeIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def two_factor_enable(data: CodeIn, request: Request, response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)):
     secret = totp.decrypt(user.totp_pending)
     if not secret:
         raise HTTPException(status.HTTP_409_CONFLICT, "Bitte starte die Einrichtung neu.")
@@ -286,11 +306,11 @@ def two_factor_enable(data: CodeIn, user: User = Depends(current_user), db: Sess
     user.token_version = (user.token_version or 0) + 1  # andere Geräte müssen sich neu (mit Code) anmelden
     db.commit()
     audit.record(db, user.email, "2fa.enable", "")
-    return {**token_out(user), "recovery_codes": codes, "status": two_factor_out(user)}
+    return {**token_out(user, response, request), "recovery_codes": codes, "status": two_factor_out(user)}
 
 
 @router.post("/me/2fa/disable")
-def two_factor_disable(data: TwoFactorConfirmIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def two_factor_disable(data: TwoFactorConfirmIn, request: Request, response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)):
     if not user.totp_enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "Die Zwei-Faktor-Anmeldung ist nicht eingerichtet.")
     if settings.two_factor_required:
@@ -302,7 +322,7 @@ def two_factor_disable(data: TwoFactorConfirmIn, request: Request, user: User = 
     user.token_version = (user.token_version or 0) + 1
     db.commit()
     audit.record(db, user.email, "2fa.disable", "")
-    return {**token_out(user), "status": two_factor_out(user)}
+    return {**token_out(user, response, request), "status": two_factor_out(user)}
 
 
 @router.post("/me/2fa/recovery")

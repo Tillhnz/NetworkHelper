@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     retention_days: int = 30
     geoip_enabled: bool = True
     geoip_city: bool = True
+    github_token: str = ""  # optional: mehr Abfragen bei GitHub (Versionsprüfung), Rechte: keine nötig
+    app_check_enabled: bool = True
+    feed_spamhaus: bool = False  # Spamhaus DROP sperren (über den Agenten)
+    feed_firehol: bool = False  # FireHOL Level 1 sperren
+    weekly_report: bool = True
+    weekly_report_day: int = 0  # 0 = Montag
+    weekly_report_hour: int = 8  # Ortszeit
     two_factor_required: bool = False  # alle Konten müssen die Zwei-Faktor-Anmeldung einrichten
     exposure_enabled: bool = True  # Selbsttest: sind .env, .git usw. auf den eigenen Seiten lesbar?
     exposure_interval_h: int = 24  # Städtedatenbank für die Karte (rund 130 MB)

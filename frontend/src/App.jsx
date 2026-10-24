@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { api, clearToken, getToken, setUnauthorizedHandler } from "./api.js";
+import { api, logoutRequest, migrateLegacySession, setUnauthorizedHandler } from "./api.js";
 import Shell from "./components/Shell.jsx";
 import { ErrorBoundary, FeedbackHost } from "./components/feedback.jsx";
 import { HelpProvider } from "./components/help.jsx";
@@ -23,10 +23,10 @@ export default function App() {
   const { pathname } = useLocation();
   const [user, setUser] = useState(null);
   const sentToSetup = useRef(false);
-  const [loading, setLoading] = useState(!!getToken());
+  const [loading, setLoading] = useState(true);
 
-  const logout = useCallback(() => {
-    clearToken();
+  const logout = useCallback(async () => {
+    await logoutRequest();
     setUser(null);
     navigate("/login");
   }, [navigate]);
@@ -46,7 +46,7 @@ export default function App() {
       setUser(null);
       navigate("/login");
     });
-    if (getToken()) loadUser();
+    migrateLegacySession().then(loadUser);
   }, [loadUser, navigate]);
 
   // Beim ersten Anmelden führt der Assistent Administratoren durch die Einrichtung

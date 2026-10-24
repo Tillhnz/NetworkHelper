@@ -1001,3 +1001,55 @@ ul.bullet li{margin:.3rem 0}
   .tfa-step{position:absolute;left:0;top:0;color:#000}
   .tfa-step .actions,.tfa-step label.check{display:none}
 }
+
+/* ---------- Apps aktuell? ---------- */
+.app-list{list-style:none;margin:0;padding:0;display:grid;gap:.5rem}
+.app-row{background:var(--panel-2);border-radius:10px;border-left:4px solid var(--line)}
+.app-row.st-vulnerable{border-left-color:var(--signal)}
+.app-row.st-major,.app-row.st-minor,.app-row.st-patch{border-left-color:var(--amber)}
+.app-row.st-current{border-left-color:var(--celeste)}
+.app-head{display:flex;gap:.75rem;align-items:center;width:100%;background:none;border:0;color:inherit;font:inherit;text-align:left;padding:.7rem .9rem;cursor:pointer}
+.app-head .grow{min-width:0;overflow-wrap:anywhere}
+.app-detail{padding:0 .9rem .8rem}
+.app-detail p{margin:.4rem 0 0}
+
+/* ---------- Wachsamkeit ---------- */
+.watch{margin-top:1rem;border-top:1px solid var(--line);padding-top:.75rem}
+.watch-list{list-style:none;margin:0 0 .5rem;padding:0;display:grid;gap:.35rem}
+.watch-list li{background:var(--panel-2);border-radius:8px;padding:.45rem .6rem;border-left:3px solid var(--amber)}
+.watch-list li.sev-crit{border-left-color:var(--signal)}
+.watch-list li.sev-info{border-left-color:var(--line)}
+.watch-row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.watch-row .grow{min-width:10rem;text-align:left;overflow-wrap:anywhere}
+.watch-detail{margin:.4rem 0 0;font-family:var(--font-mono);font-size:.8rem;white-space:pre-wrap;color:var(--mute)}
+.btn.small{padding:.2rem .6rem;font-size:.85rem;min-height:0}
+
+/* ---------- Länder & Listen ---------- */
+.geo-rules{list-style:none;margin:.5rem 0 1rem;padding:0;display:grid;gap:.4rem}
+.geo-rules li{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;background:var(--panel-2);border-radius:8px;padding:.6rem .8rem}
+.geo-rules li.paused{opacity:.6}
+.geo-rules .grow{min-width:12rem;flex:1}
+.geo-form{display:grid;gap:.6rem;border-top:1px solid var(--line);padding-top:.8rem;margin-top:.5rem}
+.geo-form select{max-width:24rem}
+.country-editor .chips{margin:.2rem 0 .5rem}
+.geo-preview{background:var(--panel-2);border-radius:8px;padding:.7rem .9rem}
+.geo-preview p{margin:0 0 .4rem}
+.geo-countries{columns:2;column-gap:2rem}
+.notice{border-radius:8px;padding:.6rem .8rem;margin:.5rem 0}
+.notice.warn{background:rgba(242,184,75,.12);border:1px solid rgba(242,184,75,.4)}
+.notice ul{margin:.3rem 0}
+.tone-ok{color:var(--celeste)}
+@media (max-width:600px){.geo-countries{columns:1}}
+.report-preview{flex-basis:100%;white-space:pre-wrap;font-family:var(--font-mono);font-size:.82rem;background:var(--panel-2);border-radius:8px;padding:.8rem 1rem;margin:.5rem 0 0;max-height:28rem;overflow:auto}
+
+/* ---------- Domain-Schutz ---------- */
+.guard + .guard{border-top:1px solid var(--line);margin-top:.75rem;padding-top:.25rem}
+.guard-list{list-style:none;margin:0;padding:0;display:grid;gap:.45rem}
+.guard-list li{display:flex;gap:.6rem;align-items:flex-start}
+.guard-list .grow{min-width:0;overflow-wrap:anywhere}
+.guard-icon{width:1.2rem;flex:none;font-weight:700;text-align:center}
+.guard-list li.ok .guard-icon{color:var(--celeste)}
+.guard-list li.bad .guard-icon{color:var(--signal)}
+.guard-list li.info .guard-icon{color:var(--amber)}
+
+.facts .pill{white-space:normal;text-align:left;max-width:100%}

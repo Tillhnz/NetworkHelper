@@ -11,10 +11,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import accesslog, audit, detect, geoip, ratelimit
+from .. import accesslog, audit, detect, geoip, hostwatch, ratelimit
 from ..config import settings
 from ..database import get_db
-from ..models import Agent, User
+from ..models import Agent, User, WatchEvent
 from ..netutil import classify
 from ..security import current_user, require_admin
 
@@ -198,6 +198,81 @@ def agent_state(data: StateIn, request: Request, authorization: str | None = Hea
     agent.enforce_blocks, agent.block_status = data.enforce_blocks, data.block_status
     agent.last_seen, agent.last_ip = now, ratelimit.client_ip(request)
     db.commit()
+    hostwatch.check_ports(db, agent, data.listening)
+    from .. import geoblock
     blocks = sorted(b.cidr for b in detect.active_blocks(db))
-    return {"blocklist": blocks, "blocklist_hash": hashlib.sha256("\n".join(blocks).encode()).hexdigest()[:16],
-            "interval": 30}
+    http_hash, snippet = geoblock.current(db)
+    digest = hashlib.sha256(("\n".join(blocks) + "|" + (http_hash or "")).encode()).hexdigest()[:16]
+    return {"blocklist": blocks, "blocklist_hash": digest, "http_conf_hash": http_hash, "server_snippet": snippet if http_hash else "",
+            "interval": 30, "agent_version": agent_version()}
+
+
+def agent_version() -> str | None:
+    """Version der mitgelieferten Agent-Datei; neuere Agenten aktualisieren sich darauf."""
+    try:
+        with open(os.path.join(AGENT_DIR, "nh-agent.py"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("VERSION = "):
+                    return line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        return None
+    return None
+
+
+@router.get("/agent/http-conf", response_class=PlainTextResponse)
+def agent_http_conf(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    _agent_from_token(authorization, db)
+    from .. import geoblock
+    return PlainTextResponse(geoblock.http_conf(db), media_type="text/plain")
+
+
+class WatchIn(BaseModel):
+    logins: list[dict] = Field(default_factory=list, max_length=500)
+    failures: dict = Field(default_factory=dict)
+    users: list[dict] = Field(default_factory=list, max_length=500)
+    files: dict = Field(default_factory=dict)
+    proxmox: bool = False
+
+
+@router.post("/agent/watch")
+def agent_watch(data: WatchIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    agent = _agent_from_token(authorization, db)
+    if len(data.files) > 1000 or len(data.failures) > 1000:
+        raise HTTPException(413, "Zu viele Einträge")
+    return hostwatch.ingest(db, agent, data.model_dump())
+
+
+# ---------- Wachsamkeit in der Oberfläche ----------
+
+@router.get("/agents/{agent_id}/watch")
+def agent_watch_view(agent_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    agent = db.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(404, "Agent nicht gefunden")
+    return hostwatch.summary(db, agent)
+
+
+class AckIn(BaseModel):
+    acknowledged: bool = True
+
+
+@router.put("/watch/events/{event_id}")
+def ack_watch_event(event_id: int, data: AckIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    ev = db.get(WatchEvent, event_id)
+    if ev is None:
+        raise HTTPException(404, "Nicht gefunden")
+    ev.acknowledged = data.acknowledged
+    db.commit()
+    audit.record(db, admin.email, "watch.ack", ev.title[:290])
+    return hostwatch.event_out(ev)
+
+
+@router.post("/agents/{agent_id}/watch/ack-all")
+def ack_all_watch(agent_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    n = 0
+    for ev in db.scalars(select(WatchEvent).where(WatchEvent.agent_id == agent_id, WatchEvent.acknowledged.is_(False))):
+        ev.acknowledged = True
+        n += 1
+    db.commit()
+    audit.record(db, admin.email, "watch.ack_all", f"Agent {agent_id}: {n}")
+    return {"acknowledged": n}

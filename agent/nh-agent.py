@@ -4,11 +4,17 @@
 Läuft als systemd-Dienst auf einem Server (zum Beispiel dem LXC mit dem Nginx Proxy Manager) und
 - liest die Zugriffsprotokolle des Proxy Managers mit und schickt neue Zeilen an NetworkHelper,
 - meldet alle 30 Sekunden die offenen und verbundenen Netzwerkverbindungen (ss) und ein paar Systemdaten,
-- setzt auf Wunsch die Sperrliste von NetworkHelper im Proxy Manager um (deny-Regeln, danach nginx neu laden).
+- setzt auf Wunsch die Sperrliste von NetworkHelper im Proxy Manager um (deny-Regeln, Länder- und Listen-Sperren,
+  danach nginx neu laden),
+- passt auf den Server selbst auf: erfolgreiche und fehlgeschlagene SSH-Anmeldungen, Benutzerkonten mit Login,
+  Prüfsummen wichtiger Systemdateien (authorized_keys, sudoers, cron, systemd …). Inhalte verlassen den Server nicht,
+  nur Prüfsummen und Namen,
+- aktualisiert sich selbst, wenn NetworkHelper eine neuere Version anbietet.
 
 Nur Python-Standardbibliothek, läuft ab Python 3.7. Konfiguration: /etc/networkhelper-agent.json
 """
 import glob
+import hashlib
 import json
 import os
 import platform
@@ -22,7 +28,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 CONFIG = os.environ.get("NH_AGENT_CONFIG", "/etc/networkhelper-agent.json")
 STATE_DIR = os.environ.get("NH_AGENT_STATE", "/var/lib/networkhelper-agent")
 DEFAULTS = {
@@ -36,9 +42,14 @@ DEFAULTS = {
     "insecure": False,        # selbst signiertes Zertifikat bei NetworkHelper akzeptieren
     "interval": 30,
     "backfill_bytes": 262144,  # beim ersten Start so viel vom Ende jeder Datei nachliefern
+    "watch": True,            # Anmeldungen, Benutzer und wichtige Dateien beobachten
+    "watch_interval": 300,
+    "auto_update": True,      # neuere Agent-Version von NetworkHelper übernehmen
 }
 BLOCK_FILE = "networkhelper_blocklist.conf"
 INCLUDE_LINE = "include /data/nginx/custom/%s; # NetworkHelper-Sperrliste" % BLOCK_FILE
+HTTP_FILE = "networkhelper_http.conf"
+HTTP_INCLUDE_LINE = "include /data/nginx/custom/%s; # NetworkHelper: Länder- und Listen-Sperren" % HTTP_FILE
 MAX_BATCH = 2000
 MAX_READ = 2 * 1024 * 1024
 
@@ -74,6 +85,11 @@ class Api:
         req = urllib.request.Request(self.base + path, data=data, headers=self.headers, method="POST")
         with urllib.request.urlopen(req, timeout=timeout, context=self.ctx) as r:
             return json.loads(r.read() or b"{}")
+
+    def get_text(self, url, timeout=60):
+        req = urllib.request.Request(url, headers=self.headers, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout, context=self.ctx) as r:
+            return r.read().decode("utf-8")
 
 
 # ---------- Protokolldateien mitlesen ----------
@@ -266,6 +282,162 @@ def system_info():
     return info
 
 
+# ---------- Wachsamkeit: Anmeldungen, Benutzer, wichtige Dateien ----------
+
+WATCH_GLOBS = [
+    "/etc/passwd", "/etc/shadow", "/etc/group", "/etc/sudoers", "/etc/sudoers.d/*",
+    "/etc/ssh/sshd_config", "/etc/ssh/sshd_config.d/*", "/root/.ssh/authorized_keys", "/home/*/.ssh/authorized_keys",
+    "/etc/crontab", "/etc/cron.d/*", "/var/spool/cron/crontabs/*", "/etc/systemd/system/*.service",
+    "/etc/rc.local", "/etc/ld.so.preload", "/etc/pve/priv/authorized_keys", "/etc/pam.d/sshd", "/etc/pam.d/common-auth",
+]
+ACCEPT_RE = re.compile(r"Accepted (\S+) for (\S+) from (\S+) port \d+")
+FAIL_RE = re.compile(r"(?:Failed password for (?:invalid user )?(\S+)|Invalid user (\S+)) from (\S+)")
+PVE_OK_RE = re.compile(r"successful auth for user '([^']+)'")
+PVE_FAIL_RE = re.compile(r"authentication failure; rhost=(\S+) user=(\S+)")
+
+
+def file_hashes():
+    out = {}
+    for g in WATCH_GLOBS:
+        for p in sorted(glob.glob(g))[:100]:
+            try:
+                if not os.path.isfile(p) or os.path.getsize(p) > 5 * 1024 * 1024:
+                    continue
+                h = hashlib.sha256()
+                with open(p, "rb") as f:
+                    for chunk in iter(lambda: f.read(65536), b""):
+                        h.update(chunk)
+                out[p] = h.hexdigest()
+            except OSError:
+                continue
+            if len(out) >= 400:
+                return out
+    return out
+
+
+def login_users():
+    """Konten, mit denen man sich anmelden kann (uid 0 oder ab 1000, mit Shell), dazu Mitglieder von sudo/wheel."""
+    users, admins = [], set()
+    for line in read_first("/etc/group").splitlines():
+        p = line.split(":")
+        if len(p) >= 4 and p[0] in ("sudo", "wheel", "admin") and p[3]:
+            admins.update(x for x in p[3].split(",") if x)
+    for line in read_first("/etc/passwd").splitlines():
+        p = line.split(":")
+        if len(p) < 7:
+            continue
+        try:
+            uid = int(p[2])
+        except ValueError:
+            continue
+        shell = p[6].strip()
+        if (uid == 0 or uid >= 1000) and not shell.endswith(("nologin", "false", "sync")) and uid != 65534:
+            users.append({"name": p[0], "uid": uid, "shell": shell, "admin": uid == 0 or p[0] in admins})
+    return users[:200]
+
+
+class AuthWatcher:
+    """Liest neue Anmelde-Ereignisse aus dem Journal (oder /var/log/auth.log)."""
+
+    def __init__(self):
+        self.path = os.path.join(STATE_DIR, "auth_cursor.json")
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                self.cursor = json.load(f)
+        except (OSError, ValueError):
+            self.cursor = {}
+
+    def _save(self):
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(self.path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(self.cursor, f)
+        os.replace(self.path + ".tmp", self.path)
+
+    def _lines(self):
+        since = self.cursor.get("since") or (time.time() - 3600)
+        now = time.time()
+        if shutil.which("journalctl"):
+            try:
+                cmd = ["journalctl", "--no-pager", "-o", "short-unix", "--since", "@%d" % int(since), "--until", "@%d" % int(now),
+                       "SYSLOG_IDENTIFIER=sshd", "+", "SYSLOG_IDENTIFIER=sshd-session", "+", "SYSLOG_IDENTIFIER=pvedaemon"]
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout
+                self.cursor["since"] = now
+                return out.splitlines()[-5000:]
+            except (OSError, subprocess.SubprocessError):
+                pass
+        for path in ("/var/log/auth.log", "/var/log/secure"):
+            if os.path.exists(path):
+                st = os.stat(path)
+                off = self.cursor.get("offset", 0) if self.cursor.get("inode") == st.st_ino else max(0, st.st_size - 65536)
+                if off > st.st_size:
+                    off = 0
+                with open(path, "rb") as f:
+                    f.seek(off)
+                    data = f.read(MAX_READ)
+                self.cursor.update({"inode": st.st_ino, "offset": off + len(data), "since": now})
+                return data.decode("utf-8", "replace").splitlines()[-5000:]
+        self.cursor["since"] = now
+        return []
+
+    def collect(self):
+        logins, fails = [], {}
+        for line in self._lines():
+            ts = None
+            m0 = re.match(r"^(\d+)(?:\.\d+)?\s", line)
+            if m0:
+                ts = int(m0.group(1))
+            m = ACCEPT_RE.search(line)
+            if m:
+                logins.append({"ts": ts, "method": m.group(1), "user": m.group(2), "ip": m.group(3), "service": "ssh"})
+                continue
+            m = FAIL_RE.search(line)
+            if m:
+                ip = m.group(3)
+                fails[ip] = fails.get(ip, 0) + 1
+                continue
+            m = PVE_OK_RE.search(line)
+            if m:
+                logins.append({"ts": ts, "method": "password", "user": m.group(1), "ip": None, "service": "proxmox"})
+                continue
+            m = PVE_FAIL_RE.search(line)
+            if m:
+                ip = m.group(1)
+                fails[ip] = fails.get(ip, 0) + 1
+        self._save()
+        return logins[-500:], dict(sorted(fails.items(), key=lambda x: -x[1])[:200])
+
+
+def watch_snapshot(auth):
+    logins, fails = auth.collect()
+    return {"logins": logins, "failures": fails, "users": login_users(), "files": file_hashes(),
+            "proxmox": os.path.isdir("/etc/pve")}
+
+
+# ---------- Selbst-Update ----------
+
+def self_update(api, cfg, offered):
+    if not cfg.get("auto_update", True) or not offered or offered == VERSION:
+        return
+    if tuple(int(x) for x in re.findall(r"\d+", offered)[:3]) <= tuple(int(x) for x in re.findall(r"\d+", VERSION)[:3]):
+        return
+    me = os.path.abspath(__file__)
+    try:
+        code = api.get_text(cfg["server"] + "/api/agent/files/nh-agent.py")
+        tmp = me + ".new"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(code)
+        import py_compile
+        py_compile.compile(tmp, doraise=True)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, me)
+        log("Agent auf Version %s aktualisiert, starte neu" % offered)
+        sys.exit(0)  # systemd startet den Agenten mit der neuen Datei neu
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log("Selbst-Update fehlgeschlagen: %s" % e)
+
+
 # ---------- Sperrliste im Proxy Manager ----------
 
 class Blocker:
@@ -288,32 +460,57 @@ class Blocker:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=60, shell=isinstance(cmd, str))
         return p.returncode, (p.stdout + p.stderr).strip()[-300:]
 
-    def apply(self, entries, digest):
+    @staticmethod
+    def _ensure_include(path, line):
+        inc = read_first(path, "")
+        if line not in inc:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(("\n" if inc and not inc.endswith("\n") else "") + line + "\n")
+
+    @staticmethod
+    def _restore(path, old):
+        if old is None:
+            if os.path.exists(path):
+                os.remove(path)
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(old)
+
+    def apply(self, entries, digest, http_conf=None, server_snippet=""):
+        """entries: deny-Adressen; http_conf: Text für den http-Block (geo/map) oder None; server_snippet: Prüfung je Host."""
         if not self.cfg.get("enforce_blocks"):
             return
         if digest == self.applied:
             return
         target = os.path.join(self.custom, BLOCK_FILE)
         include = os.path.join(self.custom, "server_proxy.conf")
+        http_target = os.path.join(self.custom, HTTP_FILE)
+        http_include = os.path.join(self.custom, "http_top.conf")
         try:
             os.makedirs(self.custom, exist_ok=True)
             old = read_first(target, None)
+            old_http = read_first(http_target, None)
+            if http_conf is None:
+                server_snippet = ""  # ohne http-Teil keine Variablen, sonst schlägt nginx -t fehl
             body = "# Von NetworkHelper verwaltet, wird überschrieben. Stand: %s\n" % time.strftime("%Y-%m-%d %H:%M:%S")
             body += "".join("deny %s;\n" % e for e in entries if re.fullmatch(r"[0-9a-fA-F:./]+", e))
+            body += server_snippet or ""
+            if http_conf is not None:
+                with open(http_target + ".tmp", "w", encoding="utf-8") as f:
+                    f.write(http_conf)
+                os.replace(http_target + ".tmp", http_target)
+                self._ensure_include(http_include, HTTP_INCLUDE_LINE)
+            elif old_http is not None:
+                with open(http_target, "w", encoding="utf-8") as f:
+                    f.write("# NetworkHelper: keine Länder- oder Listen-Sperren aktiv\n")
             with open(target + ".tmp", "w", encoding="utf-8") as f:
                 f.write(body)
             os.replace(target + ".tmp", target)
-            inc = read_first(include, "")
-            if INCLUDE_LINE not in inc:
-                with open(include, "a", encoding="utf-8") as f:
-                    f.write(("\n" if inc and not inc.endswith("\n") else "") + INCLUDE_LINE + "\n")
+            self._ensure_include(include, INCLUDE_LINE)
             code, out = self._run(self._nginx("-t"))
             if code != 0:
-                if old is None:
-                    os.remove(target)
-                else:
-                    with open(target, "w", encoding="utf-8") as f:
-                        f.write(old)
+                self._restore(target, old)
+                self._restore(http_target, old_http)
                 self.status = "Fehler in der nginx-Konfiguration, Sperrliste zurückgenommen: " + out[-200:]
                 log(self.status)
                 return
@@ -324,7 +521,8 @@ class Blocker:
                 log(self.status)
                 return
             self.applied = digest
-            self.status = "%d Einträge aktiv" % len(entries)
+            self.status = "%d %s gesperrt%s" % (len(entries), "Adresse" if len(entries) == 1 else "Adressen",
+                                                 ", Länder-/Listen-Sperren aktiv" if server_snippet else "")
             log("Sperrliste angewendet: " + self.status)
         except Exception as e:  # noqa: BLE001
             self.status = "Fehler: %s" % e
@@ -338,6 +536,8 @@ def main():
     api = Api(cfg)
     tailer = Tailer(cfg.get("log_globs") or [], int(cfg.get("backfill_bytes") or 0))
     blocker = Blocker(cfg)
+    auth = AuthWatcher()
+    next_watch = time.time() + 20
     interval = max(10, int(cfg.get("interval") or 30))
     log("NetworkHelper-Agent %s startet, Server %s, %d Protokolldateien" % (VERSION, cfg["server"], len(tailer.files())))
     next_state = 0.0
@@ -357,9 +557,16 @@ def main():
                     "established": est, "listening": listen, "log_files": tailer.describe(),
                     "enforce_blocks": bool(cfg.get("enforce_blocks")), "block_status": blocker.status[:300],
                 })
-                blocker.apply(res.get("blocklist", []), res.get("blocklist_hash"))
+                http_conf = None
+                if cfg.get("enforce_blocks") and res.get("http_conf_hash") and res.get("blocklist_hash") != blocker.applied:
+                    http_conf = api.get_text(cfg["server"] + "/api/agent/http-conf")
+                blocker.apply(res.get("blocklist", []), res.get("blocklist_hash"), http_conf, res.get("server_snippet") or "")
                 interval = max(10, int(res.get("interval") or interval))
                 next_state = time.time() + interval
+                self_update(api, cfg, res.get("agent_version"))
+            if cfg.get("watch", True) and time.time() >= next_watch:
+                api.post("/watch", watch_snapshot(auth), timeout=60)
+                next_watch = time.time() + max(60, int(cfg.get("watch_interval") or 300))
             backoff = 2
             time.sleep(1 if len(lines) >= MAX_BATCH else 3)
         except urllib.error.HTTPError as e:
@@ -380,7 +587,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--once":
         c = load_config()
         t = Tailer(c.get("log_globs") or [], 0)
-        print(json.dumps({"files": t.files(), "connections": connections()[0][:5], "info": system_info()}, indent=2))
+        print(json.dumps({"files": t.files(), "connections": connections()[0][:5], "info": system_info(),
+                          "watch": {"users": login_users(), "files": len(file_hashes())}}, indent=2))
         sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "--version":
         print(VERSION)

@@ -49,7 +49,25 @@ def security_status(db: Session) -> dict:
                                                                        Incident.last_seen >= now - timedelta(days=1))) or 0
     if crit:
         reasons.append({"points": 10, "level": "crit", "area": "incidents", "text": f"{crit} offene kritische Vorfälle (Anmeldeversuche)"})
-    from ..models import Exposure, User
+    from ..models import Exposure, User, WatchEvent
+    hw = db.execute(select(Agent.name, WatchEvent.severity, func.count()).join(Agent, Agent.id == WatchEvent.agent_id)
+                    .where(WatchEvent.acknowledged.is_(False), WatchEvent.severity.in_(["warn", "crit"]))
+                    .group_by(Agent.name, WatchEvent.severity)).all()
+    for name, sev, n in hw:
+        reasons.append({"points": 25 if sev == "crit" else 5, "level": sev, "area": "host",
+                        "text": f"{n} {'wichtige ' if sev == 'crit' else ''}Auffälligkeit{'en' if n > 1 else ''} auf {name}, bitte bestätigen oder prüfen"})
+    for d in (state.get(db, "domainguard") or {}).get("domains", []):
+        for c in d.get("checks", []):
+            if not c["ok"] and c["severity"] in ("warn", "crit"):
+                reasons.append({"points": 15 if c["severity"] == "crit" else 3, "level": c["severity"], "area": "domain",
+                                "text": f"{d['domain']}: {c['label']} fehlt oder ist zu locker"})
+    for it in (state.get(db, "appversions") or {}).get("items", []):
+        if it.get("status") == "vulnerable":
+            worst = "crit" if any(a["severity"] in ("critical", "high") for a in it.get("advisories", [])) else "warn"
+            reasons.append({"points": 20 if worst == "crit" else 10, "level": worst, "area": "apps",
+                            "text": f"{it['name']} {it.get('version')} auf {it['host']} hat bekannte Sicherheitslücken"})
+        elif it.get("status") == "major":
+            reasons.append({"points": 3, "level": "warn", "area": "apps", "text": f"{it['name']} auf {it['host']} ist eine Hauptversion zurück"})
     no2fa = db.scalars(select(User.email).where(User.role == "admin", User.active.is_not(False), User.totp_enabled.is_not(True))).all()
     if no2fa:
         reasons.append({"points": 5, "level": "warn", "area": "account",
