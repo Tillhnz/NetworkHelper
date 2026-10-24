@@ -49,3 +49,19 @@ jobs:
           bash -n proxmox/create-lxc.sh
           python3 -m py_compile agent/nh-agent.py
           POSTGRES_PASSWORD=x SECRET_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx PUBLIC_URL=http://localhost docker compose config -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Images bauen und Stack starten
+        run: |
+          cp .env.example .env
+          sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-$(openssl rand -hex 8)/; s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" .env
+          docker compose up -d --build
+          for i in $(seq 1 60); do curl -fsS http://localhost:8080/api/health && break; sleep 2; done
+          curl -fsS http://localhost:8080/ | grep -q NetworkHelper
+          curl -fsS http://localhost:8080/api/agent/files/nh-agent.py | head -3
+      - name: Protokolle bei Fehler
+        if: failure()
+        run: docker compose logs --tail 80
