@@ -13,6 +13,7 @@
 **Sicherheitsstatus überwachen**
 - Ampel mit Punktzahl auf der Startseite, jeder Abzug begründet.
 - Offene Ports: regelmäßiger Scan der öffentlichen IP (rund 100 häufige Ports, anpassbar) plus der Blick von außen über Shodan InternetDB. Riskante Ports wie Proxmox (8006), SSH oder Datenbanken lösen eine kritische Warnung aus. Gewollte Ports markierst du als erwartet.
+- Anleitungen zum Schließen: Bei jedem unerwarteten offenen Port zeigt „So schließt du ihn“ Schritt für Schritt den Weg in der FRITZ!Box (Portfreigabe löschen, UPnP, Fernzugriff, TR-069, VPN statt offener Ports). Unter „Router absichern“ gibt es eine Checkliste zum Abhaken. Für andere Router stehen allgemeine Anleitungen bereit (Administration → Allgemein → Dein Router).
 - Zertifikate und Sicherheits-Header je Hostname mit Note A bis F, Warnung 14 und 5 Tage vor Ablauf, Hilfe zum Beheben im Proxy Manager.
 - Auffällige Zugriffe: Schwachstellen-Suchen (/.env, /wp-login.php …), Angriffswerkzeuge, viele fehlgeschlagene Anmeldungen, Verzeichnis-Scans, ungewöhnlich viele Anfragen.
 - Sperrliste: per Klick oder automatisch. Der Agent setzt sie im Proxy Manager als `deny`-Regeln um, gesperrte Adressen bekommen „403“.

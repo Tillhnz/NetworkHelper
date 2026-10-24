@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtAgo, fmtDateTime, fmtNum, fmtTime } from "../api.js";
 import { Switch } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { Country, EmptyState, Grade, Pill } from "../components/ui.jsx";
 import { IpDetail } from "./Access.jsx";
-import { InfoTip, PageIntro, Term } from "../components/help.jsx";
+import { InfoTip, PageIntro, Term, useHelp } from "../components/help.jsx";
+import { GuideCard } from "../components/RouterGuide.jsx";
+import { CHECKLIST, GUIDES, guidesForPort, ROUTERS } from "../routerGuides.js";
 
-const TABS = [["ports", "Offene Ports"], ["sites", "Zertifikate & Header"], ["incidents", "Vorfälle"], ["blocks", "Sperrliste"]];
+const TABS = [["ports", "Offene Ports"], ["router", "Router absichern"], ["sites", "Zertifikate & Header"], ["incidents", "Vorfälle"], ["blocks", "Sperrliste"]];
 
 function useWatch(load, running) {
   // Während ein Scan läuft, regelmäßig nachfragen
@@ -20,6 +22,7 @@ function useWatch(load, running) {
 
 function Ports({ isAdmin }) {
   const [d, setD] = useState(null);
+  const [guideFor, setGuideFor] = useState(null);
   const [error, setError] = useState("");
   const load = useCallback(() => api.get("/security/ports").then(setD).catch((e) => setError(e.message)), []);
   useEffect(() => { load(); }, [load]);
@@ -51,22 +54,46 @@ function Ports({ isAdmin }) {
         {open.length === 0 ? <p className="ok">Keine offenen Ports gefunden.</p> : (
           <div className="table-wrap flat">
             <table className="rows">
-              <thead><tr><th>Port</th><th>Dienst</th><th>Ziel</th><th>Quelle</th><th>Seit</th><th>Erwartet <InfoTip title="Erwartet" label="Was heißt erwartet?">Ports, die du absichtlich geöffnet hast, zum Beispiel 80 und 443 für den Proxy Manager. Für erwartete Ports gibt es keinen Alarm und keinen Punktabzug. Alles andere solltest du im Router schließen, wenn du es nicht brauchst.</InfoTip></th></tr></thead>
+              <thead><tr><th>Port</th><th>Dienst</th><th>Ziel</th><th>Quelle</th><th>Seit</th><th>Erwartet <InfoTip title="Erwartet" label="Was heißt erwartet?">Ports, die du absichtlich geöffnet hast, zum Beispiel 80 und 443 für den Proxy Manager. Für erwartete Ports gibt es keinen Alarm und keinen Punktabzug. Alles andere solltest du im Router schließen, wenn du es nicht brauchst.</InfoTip></th><th><span className="sr-only">Anleitung</span></th></tr></thead>
               <tbody>
                 {open.map((p) => (
-                  <tr key={p.id} className={!p.expected ? (p.risky ? "row-crit" : "row-warn") : ""}>
+                  <Fragment key={p.id}>
+                  <tr className={!p.expected ? (p.risky ? "row-crit" : "row-warn") : ""}>
                     <td className="mono"><strong>{p.port}</strong></td>
                     <td>{p.service || "unbekannt"}{p.risky && !p.expected && <> <Pill tone="due">riskant</Pill></>}{p.banner && <div className="muted small mono ellipsis" title={p.banner}>{p.banner}</div>}</td>
                     <td className="mono small">{p.target}</td>
-                    <td className="small">{p.source === "shodan" ? "Shodan" : "eigener Scan"}</td>
+                    <td className="small nowrap">{p.source === "shodan" ? "Shodan" : "eigener Scan"}</td>
                     <td className="small nowrap">{fmtAgo(p.first_seen)}</td>
                     <td>{isAdmin ? <Switch checked={p.expected} onChange={(v) => expect(p.port, v)}><span className="sr-only">Port {p.port} erwartet</span></Switch> : (p.expected ? "ja" : "nein")}</td>
+                    <td className="nowrap">{!p.expected && (
+                      <button className={`btn small ${p.risky ? "danger-outline" : ""}`} onClick={() => { const next = guideFor === p.id ? null : p.id; setGuideFor(next); if (next) setTimeout(() => document.getElementById("port-guide")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} aria-expanded={guideFor === p.id}>
+                        {guideFor === p.id ? "Anleitung schließen" : "So schließt du ihn"}
+                      </button>
+                    )}</td>
                   </tr>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
           </div>
         )}
+        {(() => {
+          const p = open.find((x) => x.id === guideFor);
+          if (!p) return null;
+          return (
+            <div className="guide-for" id="port-guide">
+              <h3>Port {p.port} ({p.service || "unbekannt"}) schließen</h3>
+              <p className="small muted">
+                Anleitung für {ROUTERS[d.router] || "deinen Router"}.
+                {p.risky ? " Diesen Dienst solltest du nicht direkt ins Internet stellen." : " Brauchst du den Port nicht von außen, schließe ihn."}
+                {" "}Ist er gewollt, schalte bei ihm „Erwartet“ ein.
+              </p>
+              <div className="guide-list">
+                {guidesForPort(d.router, p.port).map((g, i) => <GuideCard key={g.key} guide={g} open={i === 0} />)}
+              </div>
+            </div>
+          );
+        })()}
         {closed.length > 0 && (
           <details className="howto">
             <summary>{closed.length} früher offene Ports</summary>
@@ -89,6 +116,47 @@ function Ports({ isAdmin }) {
         </section>
       )}
     </>
+  );
+}
+
+function RouterCheck({ isAdmin }) {
+  const { hidden, onUser } = useHelp();
+  const [router, setRouter] = useState(null);
+  useEffect(() => { api.get("/security/ports").then((d) => setRouter(d.router)).catch(() => setRouter("fritzbox")); }, []);
+  if (!router) return <Loading rows={2} />;
+  const keys = CHECKLIST[router] || CHECKLIST.fritzbox;
+  const set = GUIDES[router] || GUIDES.fritzbox;
+  const done = keys.filter((k) => hidden.includes(`router:${k}`));
+  async function toggle(k) {
+    const id = `router:${k}`;
+    try { onUser(await api.put("/me/onboarding", hidden.includes(id) ? { unhide_hint: id } : { hide_hint: id })); } catch (e) { toast(e.message, "error"); }
+  }
+  async function changeRouter(v) {
+    try { await api.put("/admin/settings", { values: { router_type: v } }); setRouter(v); toast("Gespeichert."); } catch (e) { toast(e.message, "error"); }
+  }
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>{ROUTERS[router]} absichern</h2>
+        {isAdmin && (
+          <select className="auto" value={router} onChange={(e) => changeRouter(e.target.value)} aria-label="Dein Router">
+            {Object.entries(ROUTERS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        )}
+      </div>
+      <p className="muted">
+        Dein Router ist die Haustür zu deinem Heimnetz. Diese Punkte schließen die häufigsten Lücken. Klappe einen Punkt auf, um die Schritte zu sehen,
+        und hake ihn ab, wenn du fertig bist. {router === "fritzbox" && <>Die Oberfläche öffnest du unter <a href="http://fritz.box" target="_blank" rel="noreferrer noopener">fritz.box</a>.</>}
+      </p>
+      <div className="check-progress" aria-label={`${done.length} von ${keys.length} erledigt`}>
+        <div className="progress"><div className="progress-bar" style={{ width: `${(done.length / keys.length) * 100}%` }} /></div>
+        <span className="small muted">{done.length} von {keys.length} erledigt</span>
+      </div>
+      <div className="guide-list">
+        {keys.map((k) => <GuideCard key={k} guide={set[k]} done={hidden.includes(`router:${k}`)} onToggleDone={() => toggle(k)} />)}
+      </div>
+      {router === "fritzbox" && <p className="muted small">Die Menüpfade gelten ab FRITZ!OS 7.5. Bei älteren Versionen musst du eventuell unten links „Ansicht: Erweitert“ einschalten, damit alle Punkte sichtbar sind.</p>}
+    </section>
   );
 }
 
@@ -290,6 +358,7 @@ export default function Security({ user }) {
         ))}
       </div>
       {tab === "ports" && <Ports isAdmin={isAdmin} />}
+      {tab === "router" && <RouterCheck isAdmin={isAdmin} />}
       {tab === "sites" && <Sites isAdmin={isAdmin} />}
       {tab === "incidents" && <Incidents isAdmin={isAdmin} onIp={setIp} />}
       {tab === "blocks" && <Blocks isAdmin={isAdmin} />}

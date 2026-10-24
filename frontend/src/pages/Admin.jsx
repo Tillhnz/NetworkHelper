@@ -330,6 +330,7 @@ const ACCESS = [
 const GENERAL = [
   { key: "public_url", type: "text", label: "Adresse von NetworkHelper", wide: true, placeholder: "https://network.example.de", hint: "Für Links in Mails und als Vorschlag im Installationsbefehl der Agenten." },
   { key: "timezone", type: "text", label: "Zeitzone", placeholder: "Europe/Berlin" },
+  { key: "router_type", type: "select", label: "Dein Router", options: [["fritzbox", "FRITZ!Box"], ["other", "Anderer Router"]], hint: "Für passende Anleitungen zum Schließen offener Ports." },
   { key: "retention_days", type: "number", label: "Zugriffe aufbewahren (Tage)", min: 1, max: 400, hint: "Ältere Einträge werden gelöscht." },
   { key: "geoip_enabled", type: "bool", label: "Land und Netzbetreiber ermitteln (DB-IP, offline)", hint: "Lädt einmal im Monat zwei Dateien von db-ip.com. Danach bleibt jede Abfrage auf dem Server." },
 ];

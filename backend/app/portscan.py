@@ -177,7 +177,8 @@ def run(db: Session) -> dict:
         sev = "crit" if f.port in RISKY else "warn"
         where = "laut Shodan von außen sichtbar" if f.source == "shodan" else "über die öffentliche Adresse erreichbar"
         notify.raise_alert(db, sev, "ports", f"Port {f.port} ({f.service or 'unbekannt'}) ist offen auf {f.target}",
-                           f"Der Port ist {where}.\nFalls das gewollt ist, markiere ihn unter Sicherheit → Ports als erwartet."
+                           f"Der Port ist {where}.\nEine Schritt-für-Schritt-Anleitung zum Schließen findest du unter Sicherheit → Offene Ports.\n"
+                           "Falls das gewollt ist, markiere ihn dort als erwartet."
                            + (f"\nAntwort des Dienstes: {f.banner}" if f.banner else ""),
                            dedupe_key=f"port:{f.target}:{f.port}:{f.source}", dedupe_hours=24)
     summary["finished"] = datetime.utcnow().isoformat()

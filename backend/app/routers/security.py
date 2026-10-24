@@ -27,7 +27,8 @@ def ports(user: User = Depends(current_user), db: Session = Depends(get_db)):
         "banner": f.banner, "open": f.open, "first_seen": f.first_seen.isoformat(), "last_seen": f.last_seen.isoformat(),
         "closed_at": f.closed_at.isoformat() if f.closed_at else None, "expected": f.port in ok, "risky": f.port in portscan.RISKY,
     } for f in rows]
-    return {"items": items, "expected": sorted(ok), "last": state.get(db, "portscan_last"),
+    from ..config import settings
+    return {"items": items, "expected": sorted(ok), "last": state.get(db, "portscan_last"), "router": settings.router_type,
             "running": scheduler.JOBS["portscan"].running, "default_ports": len(portscan.ports_to_scan())}
 
 

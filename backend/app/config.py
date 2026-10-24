@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     token_expire_days: int = 7
     updater_url: str = ""  # leer = kein Update-Dienst
     timezone: str = "Europe/Berlin"
+    router_type: str = "fritzbox"  # fritzbox | other: passende Anleitungen zum Schließen von Ports
     background_jobs: bool = True  # Tests schalten die Hintergrundaufgaben ab
 
     # E-Mail-Warnungen

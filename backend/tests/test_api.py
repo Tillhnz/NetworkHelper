@@ -289,3 +289,15 @@ def test_onboarding_state(client, admin):
     assert me["tour_done"] and me["hints_hidden"] == []
     st = client.get("/api/setup/status", headers=admin).json()
     assert st["agents"]["total"] >= 1 and {"npm", "porkbun", "smtp", "monitors"} <= set(st)
+
+
+def test_router_guides_settings(client, admin):
+    assert client.get("/api/security/ports", headers=admin).json()["router"] == "fritzbox"
+    assert client.put("/api/admin/settings", headers=admin, json={"values": {"router_type": "other"}}).status_code == 200
+    assert client.get("/api/security/ports", headers=admin).json()["router"] == "other"
+    assert client.put("/api/admin/settings", headers=admin, json={"values": {"router_type": "speedport"}}).status_code == 422
+    client.put("/api/admin/settings", headers=admin, json={"values": {"router_type": "fritzbox"}})
+    me = client.put("/api/me/onboarding", headers=admin, json={"hide_hint": "router:update"}).json()
+    assert "router:update" in me["hints_hidden"]
+    me = client.put("/api/me/onboarding", headers=admin, json={"unhide_hint": "router:update"}).json()
+    assert "router:update" not in me["hints_hidden"]

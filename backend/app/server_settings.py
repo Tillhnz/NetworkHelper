@@ -22,6 +22,7 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "trusted_proxies": ("int:0:5", "access", False),
     "public_url": ("url", "general", False),
     "timezone": ("tz", "general", False),
+    "router_type": ("choice:fritzbox|other", "general", False),
     "retention_days": ("int:1:400", "general", False),
     "geoip_enabled": ("bool", "general", False),
     "smtp_host": ("host", "email", False),

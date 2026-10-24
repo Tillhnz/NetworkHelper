@@ -168,7 +168,7 @@ export const INTROS = {
   },
   security: {
     title: "Wie gut bist du geschützt?",
-    text: "Vier Bereiche: welche Türen (Ports) von außen offen sind, ob deine Zertifikate gültig und gut eingerichtet sind, welche verdächtigen Zugriffe es gab und welche Adressen gesperrt sind. Rot heißt: bitte ansehen. Gelb heißt: verbesserbar.",
+    text: "Welche Türen (Ports) von außen offen sind und wie du sie in der FRITZ!Box schließt, eine Checkliste zum Absichern deines Routers, ob deine Zertifikate gültig und gut eingerichtet sind, welche verdächtigen Zugriffe es gab und welche Adressen gesperrt sind. Rot heißt: bitte ansehen. Gelb heißt: verbesserbar.",
   },
   uptime: {
     title: "Sind deine Dienste erreichbar?",
@@ -198,7 +198,7 @@ export const TOUR = [
   { path: "/access", target: "access-chart", title: "Der Verlauf", text: "Jeder Balken ist ein Zeitabschnitt. Grün sind erfolgreiche Aufrufe, Gelb Fehler wie „Seite nicht gefunden“ oder „falsches Passwort“, Rot Fehler beim Dienst." },
   { path: "/access", target: "access-ips", title: "Wer besucht dich?", text: "Die häufigsten Adressen mit Land und Anbieter. Klick auf eine IP: Du siehst alles über diesen Besucher und kannst ihn mit einem Klick sperren." },
   { path: "/connections", target: "agents", title: "Deine Server", text: "Hier legst du Agenten an. Der Agent auf dem Proxy-Manager-Container liefert die Zugriffe. Weitere Server kannst du genauso hinzufügen, dann siehst du auch deren Verbindungen." },
-  { path: "/security", target: "security-tabs", title: "Sicherheit in vier Bereichen", text: "Offene Ports, Zertifikate, verdächtige Vorfälle und die Sperrliste. Bei offenen Ports markierst du gewollte (meist 80 und 443) als „erwartet“, dann gibt es dafür keinen Alarm mehr." },
+  { path: "/security", target: "security-tabs", title: "Sicherheit in vier Bereichen", text: "Offene Ports, eine Checkliste für deinen Router, Zertifikate, verdächtige Vorfälle und die Sperrliste. Bei jedem unerwarteten offenen Port zeigt „So schließt du ihn“ Schritt für Schritt, was du in der FRITZ!Box klicken musst. Gewollte Ports (meist 80 und 443) markierst du als „erwartet“." },
   { path: "/uptime", target: "uptime-list", title: "Erreichbarkeit", text: "Für jeden Dienst die letzten 24 Stunden als Leiste. Fährst du mit der Maus über ein Kästchen, siehst du Uhrzeit und Antwortzeit." },
   { path: "/dns", target: "dns-hero", title: "Deine öffentliche IP und DynDNS", text: "Ändert dein Anbieter die IP deines Anschlusses, trägt NetworkHelper die neue Adresse bei Porkbun ein, damit deine Namen weiter funktionieren." },
   { path: "/dns", target: "dns-records", title: "Neue Namen anlegen", text: "Subdomain eintippen, Schalter „Öffentliche IP“ an, Anlegen. Fertig. Noch einfacher: Unten im Abgleich legt ein Klick die Einträge für alle Dienste aus dem Proxy Manager an." },
@@ -220,9 +220,17 @@ export const FAQ = [
   {
     q: "Port 8006 (Proxmox) oder 22 (SSH) ist offen",
     a: [
-      "Im Router unter Portfreigaben / Portweiterleitungen nachsehen und die Freigabe für diesen Port löschen.",
-      "Für den Zugriff von unterwegs besser ein VPN nutzen, etwa WireGuard oder Tailscale.",
-      "Ist die Freigabe wirklich gewollt, markiere den Port unter Sicherheit → Offene Ports als „erwartet“.",
+      "Unter Sicherheit → Offene Ports beim Port auf „So schließt du ihn“ klicken. Dort steht Schritt für Schritt, wo du in der FRITZ!Box klicken musst.",
+      "Kurz gesagt: in der FRITZ!Box unter Internet → Freigaben → Portfreigaben die Freigabe für diesen Port löschen.",
+      "Für den Zugriff von unterwegs besser das VPN der FRITZ!Box (WireGuard) nutzen. Die Anleitung steht unter Sicherheit → Router absichern.",
+      "Ist die Freigabe wirklich gewollt, markiere den Port als „erwartet“.",
+    ],
+  },
+  {
+    q: "Wie sichere ich meine FRITZ!Box ab?",
+    a: [
+      "Unter Sicherheit → Router absichern findest du eine Checkliste mit acht Punkten zum Abhaken.",
+      "Die wichtigsten: FRITZ!OS aktuell halten, nur die Portfreigaben 80 und 443 zum Proxy Manager behalten und selbstständige Portfreigaben (UPnP) verbieten.",
     ],
   },
   {

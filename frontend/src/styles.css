@@ -839,3 +839,33 @@ h2 .term, h3 .term { text-decoration-thickness: 2px; }
   .hiw svg { min-width: 680px; }
   .hiw-swipe { display: block; text-align: center; margin: 0.3rem 0 0; }
 }
+
+/* Router-Anleitungen */
+.progress { height: 10px; background: var(--ink); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.progress-bar { height: 100%; background: var(--celeste); }
+.check-progress { display: flex; align-items: center; gap: 0.8rem; margin: 0.6rem 0 1rem; }
+.check-progress .progress { flex: 1; max-width: 360px; }
+.guide-list { display: grid; gap: 0.6rem; }
+.guide { background: var(--ink-2); border: 1px solid var(--line); border-radius: 10px; transition: border-color 0.2s; }
+.guide.is-open { border-color: rgba(111, 211, 195, 0.5); }
+.guide.is-done .guide-title strong { color: var(--mute); text-decoration: line-through; text-decoration-color: var(--line); }
+.guide-head { display: flex; align-items: center; gap: 0.6rem; padding-left: 0.8rem; }
+.guide-title { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 1rem; background: none; border: 0; color: var(--chalk); font: inherit; text-align: left; padding: 0.75rem 0.9rem 0.75rem 0; cursor: pointer; }
+.guide-title strong { font-weight: 600; }
+.guide-chevron { color: var(--celeste); font-size: 1.3rem; line-height: 1; width: 1.2rem; text-align: center; }
+.guide-check { flex: none; display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 6px; border: 2px solid var(--line); background: var(--ink); color: var(--celeste-ink); font-weight: 700; cursor: pointer; transition: all 0.2s; }
+.guide-check:hover { border-color: var(--celeste); }
+.guide-check.on { background: var(--celeste); border-color: var(--celeste); }
+.guide-body { padding: 0 1rem 1rem; }
+.guide-body > p { margin: 0 0 0.7rem; }
+.guide-steps { margin: 0.8rem 0 0; padding-left: 1.3rem; display: grid; gap: 0.4rem; }
+.menu-path { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
+.menu-path > span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.menu-step { font-size: 0.85rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); color: var(--chalk); }
+.menu-sep { color: var(--celeste); font-weight: 700; }
+.rows tr.guide-row td { background: var(--ink); padding: 0.9rem; }
+.rows tr.guide-row td > p { margin: 0 0 0.7rem; }
+.guide-list + .muted { margin-top: 0.9rem; }
+.guide-for { margin-top: 1rem; padding: 1rem; border: 1px solid rgba(111, 211, 195, 0.45); border-radius: 12px; background: var(--ink); scroll-margin-top: 1rem; animation: rise 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+.guide-for h3 { margin: 0 0 0.3rem; font-size: 1.35rem; }
+.table-wrap { position: relative; }

@@ -67,6 +67,7 @@ class OnboardingIn(BaseModel):
     onboarding_done: bool | None = None
     tour_done: bool | None = None
     hide_hint: str | None = Field(default=None, max_length=40)
+    unhide_hint: str | None = Field(default=None, max_length=40)
     show_hints: bool = False  # alle ausgeblendeten Hinweise wieder anzeigen
 
 
@@ -165,6 +166,8 @@ def set_onboarding(data: OnboardingIn, user: User = Depends(current_user), db: S
     hints = [] if data.show_hints else _hints(user)
     if data.hide_hint and data.hide_hint not in hints:
         hints.append(data.hide_hint)
+    if data.unhide_hint:
+        hints = [h for h in hints if h != data.unhide_hint]
     user.hints_hidden = json.dumps(hints[-100:])
     db.commit()
     return user_out(user)
