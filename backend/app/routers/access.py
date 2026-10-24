@@ -108,7 +108,7 @@ def summary(rng: str = Query("24h", alias="range"), host: str | None = None, ip:
 @router.get("/events")
 def events(rng: str = Query("24h", alias="range"), host: str | None = None, ip: str | None = None, country: str | None = None,
            status: str | None = None, q: str | None = None, scope: str | None = None,
-           before_id: int | None = None, limit: int = Query(100, ge=1, le=500),
+           before_id: int | None = None, limit: int = Query(50, ge=1, le=500),
            user: User = Depends(current_user), db: Session = Depends(get_db)):
     _, conds = filters(rng, host, ip, country, status, q, scope)
     if before_id:

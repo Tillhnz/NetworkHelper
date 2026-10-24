@@ -1,0 +1,69 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: networkhelper
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: networkhelper
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U networkhelper"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://networkhelper:${POSTGRES_PASSWORD}@db:5432/networkhelper
+      SECRET_KEY: ${SECRET_KEY}
+      PUBLIC_URL: ${PUBLIC_URL}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-0}
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      UPDATER_URL: ${UPDATER_URL:-http://updater:9000}
+      # Startwerte; alles Weitere (Porkbun, Proxy Manager, E-Mail, Scans) stellst du unter Administration ein
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      PORKBUN_API_KEY: ${PORKBUN_API_KEY:-}
+      PORKBUN_SECRET_KEY: ${PORKBUN_SECRET_KEY:-}
+      NPM_URL: ${NPM_URL:-}
+      NPM_EMAIL: ${NPM_EMAIL:-}
+      NPM_PASSWORD: ${NPM_PASSWORD:-}
+    volumes:
+      - app_data:/data
+
+  # Führt Updates aus dem Admin-Bereich aus. Kein veröffentlichter Port, nur das Backend erreicht ihn (mit Token).
+  # Der Zugriff auf den Docker-Socket entspricht Root-Rechten auf dem Server. Wer das nicht möchte, entfernt
+  # diesen Block und aktualisiert mit ./install.sh update im Terminal.
+  updater:
+    build: ./updater
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+    volumes:
+      - .:/project
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  db_data:
+  app_data:

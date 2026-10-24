@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Integer, cast, distinct, func, select
 from sqlalchemy.orm import Session
 
-from .. import portscan, publicip, state
+from .. import npm, porkbun, portscan, publicip, state
 from ..database import get_db
 from ..models import AccessEvent, Agent, Alert, DynRecord, Incident, Monitor, PortFinding, SiteCheck, User
 from ..security import current_user, require_admin
@@ -81,7 +81,7 @@ def overview(user: User = Depends(current_user), db: Session = Depends(get_db)):
     incidents = db.scalars(select(Incident).where(Incident.last_seen >= since).order_by(Incident.last_seen.desc()).limit(6)).all()
     open_inc = db.scalar(select(func.count()).select_from(Incident).where(Incident.acknowledged.is_(False), Incident.last_seen >= now - timedelta(days=7))) or 0
     dyn_err = db.scalar(select(func.count()).select_from(DynRecord).where(DynRecord.last_error.is_not(None))) or 0
-    alerts = db.scalars(select(Alert).order_by(Alert.id.desc()).limit(8)).all()
+    alerts = db.scalars(select(Alert).order_by(Alert.created_at.desc()).limit(8)).all()
     return {
         "access": {"total": total or 0, "unique_ips": uniq or 0, "external": external, "errors": errors, "blocked": blocked, "series": series,
                    "hosts": [{"host": h, "count": c} for h, c in top_hosts], "countries": [{"country": k, "count": c} for k, c in countries]},
@@ -92,7 +92,8 @@ def overview(user: User = Depends(current_user), db: Session = Depends(get_db)):
         "incidents": {"open": open_inc, "recent": [{"id": i.id, "ip": i.ip, "kind": i.kind, "severity": i.severity, "count": i.count,
                                                      "country": i.country, "last_seen": i.last_seen.isoformat()} for i in incidents]},
         "agents": {"total": len(agents), "online": sum(1 for a in agents if a.last_seen and now - a.last_seen < timedelta(minutes=3))},
-        "dns": {"public_ip": publicip.info(db), "dyn_records": db.scalar(select(func.count()).select_from(DynRecord)) or 0, "dyn_errors": dyn_err,
+        "npm_configured": npm.configured(),
+        "dns": {"configured": porkbun.configured(), "public_ip": publicip.info(db), "dyn_records": db.scalar(select(func.count()).select_from(DynRecord)) or 0, "dyn_errors": dyn_err,
                 "last": state.get(db, "dyndns_last")},
         "portscan": state.get(db, "portscan_last"),
         "alerts": [_alert(a) for a in alerts],
@@ -106,7 +107,7 @@ def _alert(a: Alert) -> dict:
 
 @router.get("/alerts")
 def alerts(limit: int = 100, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    rows = db.scalars(select(Alert).order_by(Alert.id.desc()).limit(max(1, min(limit, 500)))).all()
+    rows = db.scalars(select(Alert).order_by(Alert.created_at.desc()).limit(max(1, min(limit, 500)))).all()
     unread = db.scalar(select(func.count()).select_from(Alert).where(Alert.read.is_(False))) or 0
     return {"items": [_alert(a) for a in rows], "unread": unread}
 
