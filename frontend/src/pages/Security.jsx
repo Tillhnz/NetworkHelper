@@ -58,16 +58,20 @@ function Ports({ isAdmin }) {
               <tbody>
                 {open.map((p) => (
                   <Fragment key={p.id}>
-                  <tr className={!p.expected ? (p.risky ? "row-crit" : "row-warn") : ""}>
+                  <tr className={p.expected ? "" : p.outside === "no" ? "row-info" : p.risky ? "row-crit" : "row-warn"}>
                     <td className="mono"><strong>{p.port}</strong></td>
-                    <td>{p.service || "unbekannt"}{p.risky && !p.expected && <> <Pill tone="due">riskant</Pill></>}{p.banner && <div className="muted small mono ellipsis" title={p.banner}>{p.banner}</div>}</td>
+                    <td>{p.service || "unbekannt"}{p.risky && !p.expected && p.outside !== "no" && <> <Pill tone="due">riskant</Pill></>}{p.banner && <div className="muted small mono ellipsis" title={p.banner}>{p.banner}</div>}</td>
                     <td className="mono small">{p.target}</td>
-                    <td className="small nowrap">{p.source === "shodan" ? "Shodan" : "eigener Scan"}</td>
+                    <td className="small">
+                      <span className="nowrap">{p.source === "shodan" ? "Shodan" : "eigener Scan"}</span>
+                      {p.outside === "no" && <div><Pill tone="muted">nur von innen gesehen</Pill></div>}
+                      {p.outside === "yes" && p.source === "scan" && <div className="muted small">auch laut Shodan offen</div>}
+                    </td>
                     <td className="small nowrap">{fmtAgo(p.first_seen)}</td>
                     <td>{isAdmin ? <Switch checked={p.expected} onChange={(v) => expect(p.port, v)}><span className="sr-only">Port {p.port} erwartet</span></Switch> : (p.expected ? "ja" : "nein")}</td>
                     <td className="nowrap">{!p.expected && (
-                      <button className={`btn small ${p.risky ? "danger-outline" : ""}`} onClick={() => { const next = guideFor === p.id ? null : p.id; setGuideFor(next); if (next) setTimeout(() => document.getElementById("port-guide")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} aria-expanded={guideFor === p.id}>
-                        {guideFor === p.id ? "Anleitung schließen" : "So schließt du ihn"}
+                      <button className={`btn small ${p.risky && p.outside !== "no" ? "danger-outline" : ""}`} onClick={() => { const next = guideFor === p.id ? null : p.id; setGuideFor(next); if (next) setTimeout(() => document.getElementById("port-guide")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} aria-expanded={guideFor === p.id}>
+                        {guideFor === p.id ? "Anleitung schließen" : p.outside === "no" ? "Wirklich offen?" : "So schließt du ihn"}
                       </button>
                     )}</td>
                   </tr>
@@ -82,14 +86,15 @@ function Ports({ isAdmin }) {
           if (!p) return null;
           return (
             <div className="guide-for" id="port-guide">
-              <h3>Port {p.port} ({p.service || "unbekannt"}) schließen</h3>
+              <h3>Port {p.port} {p.outside === "no" ? "prüfen" : "schließen"}: {p.service || "unbekannter Dienst"}</h3>
               <p className="small muted">
                 Anleitung für {ROUTERS[d.router] || "deinen Router"}.
-                {p.risky ? " Diesen Dienst solltest du nicht direkt ins Internet stellen." : " Brauchst du den Port nicht von außen, schließe ihn."}
+                {p.outside === "no" ? " Nur der Scan aus dem Heimnetz sieht diesen Port, Shodan von außen nicht. Wahrscheinlich antwortet nur der Router selbst."
+                  : p.risky ? " Diesen Dienst solltest du nicht direkt ins Internet stellen." : " Brauchst du den Port nicht von außen, schließe ihn."}
                 {" "}Ist er gewollt, schalte bei ihm „Erwartet“ ein.
               </p>
               <div className="guide-list">
-                {guidesForPort(d.router, p.port).map((g, i) => <GuideCard key={g.key} guide={g} open={i === 0} />)}
+                {guidesForPort(d.router, p.port, p.outside).map((g, i) => <GuideCard key={g.key} guide={g} open={i === 0} />)}
               </div>
             </div>
           );

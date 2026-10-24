@@ -33,7 +33,7 @@ SERVICES = {
     993: "IMAPS", 995: "POP3S", 1080: "SOCKS-Proxy", 1194: "OpenVPN", 1433: "MS SQL", 1521: "Oracle", 1723: "PPTP",
     1883: "MQTT", 1900: "UPnP", 2049: "NFS", 2082: "cPanel", 2083: "cPanel", 2222: "SSH (alternativ)", 2375: "Docker-API (ungeschützt)",
     2376: "Docker-API (TLS)", 3000: "Web-App (3000)", 3001: "Web-App (3001)", 3128: "HTTP-Proxy", 3306: "MySQL/MariaDB", 3389: "Remote Desktop",
-    4443: "HTTPS (alternativ)", 5000: "Synology/Web-App", 5001: "Synology HTTPS", 5060: "SIP", 5222: "XMPP", 5353: "mDNS",
+    4443: "HTTPS (alternativ)", 5000: "Synology/Web-App", 5001: "Synology HTTPS", 5060: "SIP (Internet-Telefonie)", 5061: "SIP über TLS", 5222: "XMPP", 5353: "mDNS",
     5432: "PostgreSQL", 5555: "Android Debug", 5672: "RabbitMQ", 5900: "VNC", 5901: "VNC", 6379: "Redis", 6443: "Kubernetes-API",
     7547: "TR-069 (Router-Fernwartung)", 8000: "Web-App (8000)", 8006: "Proxmox VE", 8007: "Proxmox Backup", 8008: "HTTP (alternativ)",
     8080: "HTTP (alternativ)", 8081: "HTTP (alternativ)", 8083: "Web-App", 8086: "InfluxDB", 8088: "Web-App", 8096: "Jellyfin",
@@ -46,6 +46,21 @@ SERVICES = {
 RISKY = {21, 22, 23, 81, 111, 135, 137, 139, 445, 1433, 1521, 2049, 2375, 2376, 3306, 3389, 5432, 5555, 5900, 5901, 6379,
          6443, 7547, 8006, 8007, 9000, 9090, 9200, 10000, 11211, 27017}
 DEFAULT_PORTS = sorted(p for p in SERVICES if p not in (51820, 5353, 1900, 137, 500))
+
+
+def outside_view(summary: dict | None, target: str, port: int, source: str) -> str:
+    """Sieht Shodan den Port auch von außen? 'yes', 'no' oder 'unknown' (keine Shodan-Daten für dieses Ziel).
+
+    Der eigene Scan läuft aus dem Heimnetz; der Router beantwortet ihn per NAT-Loopback und zeigt dabei auch Dienste,
+    die nur im Heimnetz erreichbar sind (bei der FRITZ!Box etwa SIP auf 5060). Shodan ist der Blick von außen.
+    """
+    if source == "shodan":
+        return "yes"
+    sh = (summary or {}).get("shodan")
+    targets = (summary or {}).get("targets") or []
+    if not sh or not targets or target != targets[0]:
+        return "unknown"
+    return "yes" if port in (sh.get("ports") or []) else "no"
 
 
 def ports_to_scan() -> list[int]:
@@ -174,8 +189,13 @@ def run(db: Session) -> dict:
     for f in new_findings:
         if f.port in ok_ports:
             continue
+        seen_outside = outside_view(summary, f.target, f.port, f.source)
         sev = "crit" if f.port in RISKY else "warn"
         where = "laut Shodan von außen sichtbar" if f.source == "shodan" else "über die öffentliche Adresse erreichbar"
+        if seen_outside == "no":
+            sev = "info"
+            where = ("aus dem Heimnetz über die öffentliche Adresse erreichbar, Shodan sieht ihn von außen aber nicht. "
+                     "Vermutlich antwortet nur der Router selbst (NAT-Loopback)")
         notify.raise_alert(db, sev, "ports", f"Port {f.port} ({f.service or 'unbekannt'}) ist offen auf {f.target}",
                            f"Der Port ist {where}.\nEine Schritt-für-Schritt-Anleitung zum Schließen findest du unter Sicherheit → Offene Ports.\n"
                            "Falls das gewollt ist, markiere ihn dort als erwartet."

@@ -20,14 +20,20 @@ def security_status(db: Session) -> dict:
     reasons = []
     expected = portscan.expected(db)
     open_ports = db.scalars(select(PortFinding).where(PortFinding.open.is_(True))).all()
+    last = state.get(db, "portscan_last")
     seen = set()
     for f in open_ports:
         if f.port in expected or (f.target, f.port) in seen:
             continue
         seen.add((f.target, f.port))
         risky = f.port in portscan.RISKY
+        name = f"Port {f.port} ({f.service or portscan.SERVICES.get(f.port, 'unbekannt')})"
+        if portscan.outside_view(last, f.target, f.port, f.source) == "no":
+            # nur aus dem Heimnetz gesehen: vermutlich ein Dienst des Routers selbst, kaum Abzug
+            reasons.append({"points": 2, "level": "warn", "area": "ports", "text": f"{name} nur aus dem Heimnetz gesehen, bitte von außen prüfen"})
+            continue
         reasons.append({"points": 25 if risky else 10, "level": "crit" if risky else "warn", "area": "ports",
-                        "text": f"Port {f.port} ({f.service or portscan.SERVICES.get(f.port, 'unbekannt')}) offen auf {f.target}"})
+                        "text": f"{name} offen auf {f.target}"})
     now = datetime.utcnow()
     sites = db.scalars(select(SiteCheck).where(SiteCheck.enabled.is_(True), SiteCheck.checked_at.is_not(None))).all()
     for s in sites:

@@ -64,3 +64,13 @@ def test_dns_helpers():
 def test_uptime_and_grades():
     assert uptime.status_ok(200, "200-399") and uptime.status_ok(401, "200-299,401") and not uptime.status_ok(500, "200-499")
     assert sitecheck.grade_for(100) == "A" and sitecheck.grade_for(82) == "B" and sitecheck.grade_for(10) == "F"
+
+
+def test_outside_view():
+    from app.portscan import outside_view
+    summary = {"targets": ["84.130.20.50", "vps.example.de"], "shodan": {"ports": [80, 443]}}
+    assert outside_view(summary, "84.130.20.50", 443, "scan") == "yes"
+    assert outside_view(summary, "84.130.20.50", 5060, "scan") == "no"  # nur NAT-Loopback
+    assert outside_view(summary, "vps.example.de", 5060, "scan") == "unknown"  # Shodan fragt nur die eigene IP
+    assert outside_view({"targets": ["84.130.20.50"], "shodan": None}, "84.130.20.50", 5060, "scan") == "unknown"
+    assert outside_view(None, "x", 1, "shodan") == "yes"

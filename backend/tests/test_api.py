@@ -291,6 +291,21 @@ def test_onboarding_state(client, admin):
     assert st["agents"]["total"] >= 1 and {"npm", "porkbun", "smtp", "monitors"} <= set(st)
 
 
+def test_inside_only_port_barely_counts(client, admin):
+    from app import state
+    from app.models import PortFinding
+    with SessionLocal() as db:
+        now = datetime.utcnow()
+        db.add(PortFinding(target="84.130.20.50", port=5060, source="scan", open=True, first_seen=now, last_seen=now, service="SIP (Internet-Telefonie)"))
+        state.put(db, "portscan_last", {"targets": ["84.130.20.50"], "shodan": {"ports": [80, 443], "vulns": []}})
+    ports = client.get("/api/security/ports", headers=admin).json()["items"]
+    sip = next(p for p in ports if p["port"] == 5060)
+    assert sip["outside"] == "no"
+    reasons = client.get("/api/overview", headers=admin).json()["security"]["reasons"]
+    r = next(r for r in reasons if "5060" in r["text"])
+    assert r["points"] == 2 and "nur aus dem Heimnetz" in r["text"]
+
+
 def test_router_guides_settings(client, admin):
     assert client.get("/api/security/ports", headers=admin).json()["router"] == "fritzbox"
     assert client.put("/api/admin/settings", headers=admin, json={"values": {"router_type": "other"}}).status_code == 200

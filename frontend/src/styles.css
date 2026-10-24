@@ -869,3 +869,4 @@ h2 .term, h3 .term { text-decoration-thickness: 2px; }
 .guide-for { margin-top: 1rem; padding: 1rem; border: 1px solid rgba(111, 211, 195, 0.45); border-radius: 12px; background: var(--ink); scroll-margin-top: 1rem; animation: rise 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
 .guide-for h3 { margin: 0 0 0.3rem; font-size: 1.35rem; }
 .table-wrap { position: relative; }
+.rows tr.row-info td:first-child { box-shadow: inset 3px 0 0 var(--sky); }

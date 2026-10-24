@@ -22,13 +22,15 @@ router = APIRouter(prefix="/api/security", tags=["security"])
 def ports(user: User = Depends(current_user), db: Session = Depends(get_db)):
     ok = portscan.expected(db)
     rows = db.scalars(select(PortFinding).order_by(PortFinding.open.desc(), PortFinding.port)).all()
+    last = state.get(db, "portscan_last")
     items = [{
+        "outside": portscan.outside_view(last, f.target, f.port, f.source),
         "id": f.id, "target": f.target, "port": f.port, "source": f.source, "service": f.service or portscan.SERVICES.get(f.port),
         "banner": f.banner, "open": f.open, "first_seen": f.first_seen.isoformat(), "last_seen": f.last_seen.isoformat(),
         "closed_at": f.closed_at.isoformat() if f.closed_at else None, "expected": f.port in ok, "risky": f.port in portscan.RISKY,
     } for f in rows]
     from ..config import settings
-    return {"items": items, "expected": sorted(ok), "last": state.get(db, "portscan_last"), "router": settings.router_type,
+    return {"items": items, "expected": sorted(ok), "last": last, "router": settings.router_type,
             "running": scheduler.JOBS["portscan"].running, "default_ports": len(portscan.ports_to_scan())}
 
 

@@ -6,6 +6,28 @@ export const ROUTERS = { fritzbox: "FRITZ!Box", other: "Anderer Router" };
 
 export const GUIDES = {
   fritzbox: {
+    verify: {
+      title: "Erst prüfen: Ist der Port wirklich von außen offen?",
+      why: "NetworkHelper scannt deine öffentliche Adresse aus dem Heimnetz. Dabei antwortet die FRITZ!Box selbst (NAT-Loopback), auch mit Diensten, die nur im Heimnetz erreichbar sind. Steht der Port nicht unter Portfreigaben und sieht Shodan ihn nicht, ist er sehr wahrscheinlich von außen geschlossen.",
+      path: ["Internet", "Freigaben", "Portfreigaben"],
+      steps: [
+        "Schau unten auf dieser Seite in den Kasten „Was Shodan sieht“. Fehlt der Port dort, sieht ihn das Internet (Stand: letzter Shodan-Besuch) nicht.",
+        "Prüfe in der FRITZ!Box unter Internet → Freigaben → Portfreigaben, ob es eine Freigabe für diesen Port gibt. Achte auch auf die Liste der per UPnP geöffneten Ports darunter.",
+        "Ganz sicher wirst du mit einem Test von außen: am Handy WLAN ausschalten, mit mobilen Daten einen Online-Portscanner öffnen und deine öffentliche IP mit diesem Port prüfen.",
+        "Ist der Port von außen zu, schalte bei ihm „Erwartet“ ein. Dann meldet NetworkHelper ihn nicht mehr.",
+      ],
+    },
+    sip: {
+      title: "Port 5060: Telefonie der FRITZ!Box",
+      why: "Über Port 5060 (SIP) spricht die FRITZ!Box mit deinen Telefonen und dem Telefonanbieter. Das ist ihr eigener Dienst und keine Portfreigabe, deshalb taucht er unter Portfreigaben nicht auf. Meist ist er von außen gar nicht erreichbar und wird nur beim Scan aus dem Heimnetz sichtbar.",
+      path: ["Telefonie", "Telefoniegeräte"],
+      steps: [
+        "Sieht Shodan (unten auf dieser Seite) Port 5060 nicht, ist alles in Ordnung: Schalte bei ihm „Erwartet“ ein.",
+        "Prüfe unter Internet → Freigaben → Portfreigaben, dass kein Gerät eine Freigabe für 5060 hat. Die braucht nur, wer eine eigene Telefonanlage (zum Beispiel 3CX) im Heimnetz betreibt.",
+        "Hast du unter Telefonie → Telefoniegeräte IP-Telefone eingerichtet, die von unterwegs (über das Internet) angemeldet sind, und brauchst du das nicht, entferne sie oder erlaube die Anmeldung nur aus dem Heimnetz.",
+        "Sieht Shodan 5060 doch, wende dich an AVM oder deinen Anbieter, denn standardmäßig ist er von außen geschlossen.",
+      ],
+    },
     portforward: {
       title: "Portfreigabe löschen",
       why: "Eine Portfreigabe ist eine offene Tür vom Internet zu einem Gerät in deinem Heimnetz. Für deine Webdienste brauchst du nur die Freigaben für Port 80 und 443 zum Proxy Manager, alles andere solltest du schließen.",
@@ -114,6 +136,17 @@ export const GUIDES = {
     },
   },
   other: {
+    verify: {
+      title: "Erst prüfen: Ist der Port wirklich von außen offen?",
+      why: "NetworkHelper scannt deine öffentliche Adresse aus dem Heimnetz. Dabei antwortet der Router oft selbst, auch mit Diensten, die nur im Heimnetz erreichbar sind.",
+      path: ["Router-Oberfläche", "Portfreigaben"],
+      steps: [
+        "Schau unten auf dieser Seite, ob Shodan den Port sieht.",
+        "Prüfe in deinem Router, ob es eine Portfreigabe für diesen Port gibt.",
+        "Test von außen: am Handy WLAN aus, mit mobilen Daten einen Online-Portscanner auf deine öffentliche IP und diesen Port ansetzen.",
+        "Ist der Port von außen zu, schalte bei ihm „Erwartet“ ein.",
+      ],
+    },
     portforward: {
       title: "Portfreigabe im Router löschen",
       why: "Eine Portfreigabe ist eine offene Tür vom Internet zu einem Gerät in deinem Heimnetz. Für deine Webdienste brauchst du nur 80 und 443 zum Proxy Manager.",
@@ -152,6 +185,7 @@ export const GUIDES = {
 // Welche Anleitungen zu welchem Port passen
 const BY_PORT = {
   21: ["ftp", "portforward"], 990: ["ftp", "portforward"],
+  5060: ["sip", "portforward"], 5061: ["sip", "portforward"],
   7547: ["tr069"],
   80: ["portforward", "remote_https"], 443: ["portforward", "remote_https"], 8443: ["remote_https", "portforward"],
   22: ["portforward", "vpn"], 2222: ["portforward", "vpn"], 8006: ["portforward", "vpn"], 8007: ["portforward", "vpn"],
@@ -160,9 +194,11 @@ const BY_PORT = {
 };
 
 /** Passende Anleitungen für einen offenen Port. Unbekannte Ports: Portfreigabe und UPnP. */
-export function guidesForPort(router, port) {
+export function guidesForPort(router, port, outside = "unknown") {
   const set = GUIDES[router] || GUIDES.fritzbox;
-  const keys = BY_PORT[port] || ["portforward", "upnp"];
+  let keys = BY_PORT[port] || ["portforward", "upnp"];
+  // Nur vom eigenen Scan gesehen: zuerst von außen nachprüfen
+  if (outside !== "yes" && !keys.includes("sip")) keys = ["verify", ...keys];
   return keys.filter((k) => set[k]).map((k) => ({ key: k, ...set[k] }));
 }
 
