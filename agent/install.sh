@@ -2,7 +2,7 @@
 # NetworkHelper-Agent installieren, aktualisieren oder entfernen.
 #
 # Den fertigen Befehl mit Token zeigt NetworkHelper unter „Verbindungen → Agent hinzufügen“. Er sieht so aus:
-#   curl -fsSL http://NETWORKHELPER/api/agent/files/install.sh | sudo bash -s -- --server http://NETWORKHELPER --token nh_…
+#   curl -fsSL http://NETWORKHELPER/api/agent/files/install.sh | bash -s -- --server http://NETWORKHELPER --token nh_…   (als root)
 #
 # Optionen:
 #   --server URL        Adresse von NetworkHelper (Pflicht bei der ersten Installation)

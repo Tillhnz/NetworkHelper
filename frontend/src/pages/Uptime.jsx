@@ -4,6 +4,7 @@ import { Sparkline, UptimeStrip } from "../components/charts.jsx";
 import { Switch } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { Dot, EmptyState, Pill, usePoll } from "../components/ui.jsx";
+import { PageIntro, Term } from "../components/help.jsx";
 
 const EMPTY = { name: "", url: "https://", expect: "200-399", keyword: "", verify_tls: true, enabled: true };
 
@@ -20,7 +21,7 @@ function MonitorForm({ initial, onSave, onCancel, fromNpm }) {
       <label>Adresse<input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} required disabled={fromNpm} />
         {fromNpm && <span className="hint">Kommt aus dem Proxy Manager.</span>}</label>
       <label>Erwartete Antwort<input value={f.expect} onChange={(e) => setF({ ...f, expect: e.target.value })} placeholder="200-399" />
-        <span className="hint">Statuscodes, z. B. 200-399 oder 200-299,401 für Seiten mit Anmeldung.</span></label>
+        <span className="hint"><Term k="status_code">Statuscodes</Term>, z. B. 200-399 oder 200-299,401 für Seiten mit Anmeldung.</span></label>
       <label>Muss enthalten (optional)<input value={f.keyword} onChange={(e) => setF({ ...f, keyword: e.target.value })} placeholder="z. B. Nextcloud" /></label>
       <div className="span-all switch-row">
         <Switch checked={f.verify_tls} onChange={(v) => setF({ ...f, verify_tls: v })}>Zertifikat prüfen</Switch>
@@ -70,6 +71,7 @@ export default function Uptime({ user }) {
           </div>
         )}
       </header>
+      <PageIntro id="uptime" />
       {error && <p className="error" role="alert">{error}</p>}
       {rows && rows.length > 0 && (
         <p className={`status-banner ${down ? "is-down" : "is-up"}`}>
@@ -81,7 +83,7 @@ export default function Uptime({ user }) {
       {!rows ? <Loading rows={3} /> : rows.length === 0 ? (
         <EmptyState title="Noch keine Dienste" text="Verbinde den Proxy Manager unter Administration: Für jeden Proxy Host entsteht dann automatisch ein Monitor. Oder füge Adressen selbst hinzu." />
       ) : (
-        <ul className="monitor-list">
+        <ul className="monitor-list" data-tour="uptime-list">
           {rows.map((m) => (
             <li key={m.id} className={`panel monitor state-${m.state}`}>
               {edit === m.id ? (
@@ -98,7 +100,7 @@ export default function Uptime({ user }) {
                       <span><strong>{m.uptime_24h != null ? `${fmtNum(m.uptime_24h, 2)} %` : "–"}</strong><small>24 Std.</small></span>
                       <span className="hide-sm"><strong>{m.uptime_7d != null ? `${fmtNum(m.uptime_7d, 2)} %` : "–"}</strong><small>7 Tage</small></span>
                       <span className="hide-sm"><strong>{m.uptime_30d != null ? `${fmtNum(m.uptime_30d, 2)} %` : "–"}</strong><small>30 Tage</small></span>
-                      <span><strong>{m.latency_ms != null ? `${m.latency_ms} ms` : "–"}</strong><small>Antwort</small></span>
+                      <span><strong>{m.latency_ms != null ? `${m.latency_ms} ms` : "–"}</strong><small><Term k="latency">Antwort</Term></small></span>
                     </div>
                   </div>
                   <UptimeStrip history={m.history} />

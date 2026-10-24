@@ -17,7 +17,7 @@ export default function Shell({ user, onLogout, children }) {
   const { pathname } = useLocation();
   useEffect(() => {
     const hit = [...NAV].reverse().find((n) => (n.end ? pathname === n.to : pathname.startsWith(n.to)));
-    const extra = { "/admin": "Administration", "/alerts": "Meldungen" }[pathname];
+    const extra = { "/admin": "Administration", "/alerts": "Meldungen", "/help": "Hilfe", "/setup": "Einrichtung" }[pathname];
     document.title = extra ? `${extra} · NetworkHelper` : hit ? `${hit.label} · NetworkHelper` : "NetworkHelper";
   }, [pathname]);
   return (
@@ -31,7 +31,7 @@ export default function Shell({ user, onLogout, children }) {
           </div>
           <ThemeToggle />
         </div>
-        <nav aria-label="Hauptmenü">
+        <nav aria-label="Hauptmenü" data-tour="nav">
           {NAV.map((n) => (
             <NavLink key={n.to} to={n.to} end={n.end}>
               <svg viewBox="0 0 24 24" className="nav-icon" aria-hidden="true" focusable="false"><path d={n.icon} /></svg>
@@ -42,9 +42,10 @@ export default function Shell({ user, onLogout, children }) {
         </nav>
         <div className="sidebar-foot">
           <span className="muted small">{user.email}</span>
-          <NavLink className="link foot-alerts" to="/alerts">Meldungen</NavLink>
+          <NavLink className="link foot-alerts" to="/alerts" data-tour="alerts-link">Meldungen</NavLink>
+          <NavLink className="link" to="/help" data-tour="help-link">Hilfe</NavLink>
           {user.role === "admin" && <NavLink className="link" to="/admin"><span className="nav-foot-long">Administration</span><span className="nav-foot-short">Admin</span></NavLink>}
-          <button className="link" onClick={onLogout}>Abmelden</button>
+          <button className="link foot-logout" onClick={onLogout}>Abmelden</button>
         </div>
       </aside>
       <main className="main" id="inhalt" tabIndex={-1}>

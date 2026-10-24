@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 
@@ -48,10 +49,25 @@ class AlertPrefIn(BaseModel):
     alert_email: bool
 
 
+def _hints(u: User) -> list[str]:
+    try:
+        return json.loads(u.hints_hidden) if u.hints_hidden else []
+    except ValueError:
+        return []
+
+
 def user_out(u: User) -> dict:
     admin = u.role == "admin"
     return {"id": u.id, "email": u.email, "role": "admin" if admin else "user", "is_admin": admin,
-            "alert_email": u.alert_email if u.alert_email is not None else admin}
+            "alert_email": u.alert_email if u.alert_email is not None else admin,
+            "onboarding_done": bool(u.onboarding_done), "tour_done": bool(u.tour_done), "hints_hidden": _hints(u)}
+
+
+class OnboardingIn(BaseModel):
+    onboarding_done: bool | None = None
+    tour_done: bool | None = None
+    hide_hint: str | None = Field(default=None, max_length=40)
+    show_hints: bool = False  # alle ausgeblendeten Hinweise wieder anzeigen
 
 
 def token_out(user: User) -> dict:
@@ -136,6 +152,20 @@ def me(user: User = Depends(current_user)):
 @router.put("/me/alerts")
 def set_alerts(data: AlertPrefIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     user.alert_email = data.alert_email
+    db.commit()
+    return user_out(user)
+
+
+@router.put("/me/onboarding")
+def set_onboarding(data: OnboardingIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if data.onboarding_done is not None:
+        user.onboarding_done = data.onboarding_done
+    if data.tour_done is not None:
+        user.tour_done = data.tour_done
+    hints = [] if data.show_hints else _hints(user)
+    if data.hide_hint and data.hide_hint not in hints:
+        hints.append(data.hide_hint)
+    user.hints_hidden = json.dumps(hints[-100:])
     db.commit()
     return user_out(user)
 

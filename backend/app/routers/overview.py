@@ -126,3 +126,22 @@ def delete_alert(alert_id: int, admin: User = Depends(require_admin), db: Sessio
         raise HTTPException(404, "Meldung nicht gefunden")
     db.delete(a)
     db.commit()
+
+
+@router.get("/setup/status")
+def setup_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Einrichtungsstand für den Assistenten: was ist schon verbunden, was fehlt noch."""
+    from .. import notify
+    now = datetime.utcnow()
+    agents = db.scalars(select(Agent)).all()
+    online = [a for a in agents if a.last_seen and now - a.last_seen < timedelta(minutes=3)]
+    with_logs = [a for a in agents if (a.lines_total or 0) > 0]
+    return {
+        "agents": {"total": len(agents), "online": len(online), "with_logs": len(with_logs),
+                   "names": [a.name for a in online]},
+        "npm": npm.configured(),
+        "porkbun": porkbun.configured(),
+        "smtp": notify.smtp_configured(),
+        "monitors": db.scalar(select(func.count()).select_from(Monitor)) or 0,
+        "public_ip": publicip.info(db).get("ip"),
+    }

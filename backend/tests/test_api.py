@@ -271,3 +271,16 @@ def test_auto_block_for_ongoing_attack(client, admin):
             assert db.query(Alert).filter(Alert.title == "89.248.165.77 automatisch gesperrt").count() == 1
     finally:
         settings.auto_block = False
+
+
+def test_onboarding_state(client, admin):
+    me = client.get("/api/me", headers=admin).json()
+    assert me["onboarding_done"] is False and me["tour_done"] is False and me["hints_hidden"] == []
+    me = client.put("/api/me/onboarding", headers=admin, json={"onboarding_done": True, "hide_hint": "intro:access"}).json()
+    assert me["onboarding_done"] and me["hints_hidden"] == ["intro:access"]
+    me = client.put("/api/me/onboarding", headers=admin, json={"hide_hint": "intro:access"}).json()
+    assert me["hints_hidden"] == ["intro:access"]  # nicht doppelt
+    me = client.put("/api/me/onboarding", headers=admin, json={"tour_done": True, "show_hints": True}).json()
+    assert me["tour_done"] and me["hints_hidden"] == []
+    st = client.get("/api/setup/status", headers=admin).json()
+    assert st["agents"]["total"] >= 1 and {"npm", "porkbun", "smtp", "monitors"} <= set(st)

@@ -51,6 +51,17 @@ curl -fsSL https://raw.githubusercontent.com/Tillhnz/NetworkHelper/main/install.
 
 Das Skript installiert bei Bedarf Git und Docker, erzeugt Passwörter, schreibt die `.env` und startet alles. Danach ist NetworkHelper unter `http://<IP-des-Containers>:8080` erreichbar.
 
+## Einführung für Einsteiger
+
+Beim ersten Anmelden führt ein **Einrichtungs-Assistent** Schritt für Schritt durch alles: Agent installieren (mit Live-Anzeige, sobald er sich meldet), Proxy Manager verbinden, Porkbun verbinden und E-Mail einrichten, jeweils mit Test-Knopf. Jeder Schritt lässt sich überspringen.
+
+Danach zeigt eine **geführte Tour** in 15 kurzen Schritten, wo du was findest. Dazu kommen:
+- **Erklärkästen** oben auf jeder Seite („Was sehe ich hier?“), mit „Verstanden“ ausblendbar.
+- **Anklickbare Fachbegriffe:** Gepunktet unterstrichene Wörter und kleine **?** erklären Port, DNS, DynDNS, Zertifikat und Co. direkt an Ort und Stelle.
+- Die Seite **Hilfe** mit Schaubild („So hängt alles zusammen“), Farberklärung, „Was tun, wenn …“ für typische Meldungen und einem Lexikon zum Durchsuchen.
+
+Tour, Assistent und ausgeblendete Erklärungen holst du jederzeit unter Einstellungen → Einführung zurück.
+
 ## Einrichten in 4 Schritten
 
 1. **Konto anlegen.** Das erste Konto wird Administrator, danach ist die Registrierung geschlossen (weitere Personen per Einladung).
@@ -71,8 +82,8 @@ Ein einzelnes Python-Skript ohne Abhängigkeiten (`agent/nh-agent.py`, ab Python
 ```bash
 journalctl -u networkhelper-agent -f            # Protokoll
 systemctl restart networkhelper-agent           # Neustart
-curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | sudo bash -s -- --enforce-blocks   # Option ändern (Server und Token bleiben)
-curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | sudo bash -s -- --uninstall        # Entfernen
+curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | bash -s -- --enforce-blocks   # Option ändern (Server und Token bleiben)
+curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | bash -s -- --uninstall        # Entfernen
 ```
 
 Den Agenten kannst du auch auf weiteren Servern installieren. Ohne Proxy Manager meldet er nur Verbindungen und Ports.

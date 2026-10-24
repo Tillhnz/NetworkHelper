@@ -5,6 +5,7 @@ import { HBars, Legend, TrafficBars } from "../components/charts.jsx";
 import { Segmented } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { Country, Drawer, EmptyState, Kpi, Pill } from "../components/ui.jsx";
+import { InfoTip, PageIntro, Term } from "../components/help.jsx";
 
 const RANGES = [{ value: "1h", label: "1 Std." }, { value: "24h", label: "24 Std." }, { value: "7d", label: "7 Tage" }, { value: "30d", label: "30 Tage" }];
 const SCOPES = [{ value: "", label: "Alle" }, { value: "external", label: "Von außen" }, { value: "internal", label: "Heimnetz" }];
@@ -146,7 +147,8 @@ export default function Access({ user }) {
         <Segmented value={f.range} onChange={(v) => set({ range: v })} options={RANGES} />
       </header>
 
-      <div className="filter-bar">
+      <PageIntro id="access" />
+      <div className="filter-bar" data-tour="access-filters">
         <select value={f.host} onChange={(e) => set({ host: e.target.value })} aria-label="Host">
           <option value="">Alle Hosts</option>
           {hosts.map((h) => <option key={h} value={h}>{h}</option>)}
@@ -180,8 +182,8 @@ export default function Access({ user }) {
             <Kpi value={fmtBytes(data.bytes)} label="übertragen" />
           </div>
 
-          <section className="panel">
-            <div className="panel-head"><h2>Verlauf</h2><Legend /></div>
+          <section className="panel" data-tour="access-chart">
+            <div className="panel-head"><h2>Verlauf <InfoTip k="status_code" label="Was bedeuten die Farben?" /></h2><Legend /></div>
             <TrafficBars series={data.series} bucket={data.bucket_s} />
           </section>
 
@@ -195,14 +197,14 @@ export default function Access({ user }) {
               <HBars color="var(--sky)" items={data.countries.map((c) => ({ key: c.country || "--", label: <Country code={c.country} />, value: c.count, onClick: () => set({ country: c.country || "--" }) }))} />
             </section>
             <section className="panel">
-              <h2>Antworten</h2>
+              <h2>Antworten <InfoTip k="status_code" /></h2>
               <HBars items={data.statuses.map((s) => ({ key: s.status, label: String(s.status), value: s.count, color: `var(--tone-${statusTone(s.status)})`, onClick: () => set({ status: String(s.status)[0] }) }))} />
             </section>
           </div>
 
           <div className="grid-2">
-            <section className="panel">
-              <h2>Häufigste IP-Adressen</h2>
+            <section className="panel" data-tour="access-ips">
+              <h2>Häufigste <Term k="ip">IP-Adressen</Term></h2>
               <div className="table-wrap flat">
                 <table className="rows">
                   <thead><tr><th>IP</th><th>Herkunft</th><th className="num">Zugriffe</th><th className="num">Fehler</th></tr></thead>
@@ -223,7 +225,7 @@ export default function Access({ user }) {
             <section className="panel">
               <h2>Häufigste Pfade</h2>
               <HBars items={data.paths.map((p) => ({ key: p.path, label: p.path, value: p.count, onClick: () => { setSearch(p.path); set({ q: p.path }); } }))} />
-              <h3 className="sub-title">Netzbetreiber</h3>
+              <h3 className="sub-title"><Term k="asn">Netzbetreiber</Term></h3>
               <HBars color="var(--sky)" items={data.orgs.map((o) => ({ key: o.as_org || "-", label: o.as_org || "unbekannt", value: o.count }))} />
             </section>
           </div>
@@ -233,7 +235,7 @@ export default function Access({ user }) {
             {events?.length === 0 ? <p className="muted">Keine Einträge für diese Filter.</p> : (
               <div className="table-wrap flat">
                 <table className="rows log-table">
-                  <thead><tr><th>Zeit</th><th>Status</th><th>Anfrage</th><th>IP</th><th className="hide-sm">Programm</th></tr></thead>
+                  <thead><tr><th>Zeit</th><th>Status</th><th>Anfrage</th><th>IP</th><th className="hide-sm"><Term k="user_agent">Programm</Term></th></tr></thead>
                   <tbody>
                     {events?.map((e) => (
                       <tr key={e.id} className={e.blocked ? "is-blocked" : ""}>

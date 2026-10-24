@@ -19,6 +19,10 @@ class User(Base):
     role: Mapped[str | None] = mapped_column(String(10), nullable=True)  # admin | user
     active: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     alert_email: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # Warnungen per E-Mail (leer = ja für Admins)
+    # Einführung: Assistent und Tour erledigt, ausgeblendete Hinweise (JSON-Liste)
+    onboarding_done: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    tour_done: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    hints_hidden: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Invite(Base):

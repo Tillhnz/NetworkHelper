@@ -4,6 +4,7 @@ import { api, fmtAgo } from "../api.js";
 import { Switch } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { EmptyState, Pill } from "../components/ui.jsx";
+import { InfoTip, PageIntro, Term } from "../components/help.jsx";
 
 const TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "CAA", "SRV", "ALIAS"];
 
@@ -54,7 +55,7 @@ function Records({ domain, isAdmin, dynEnabled }) {
       {isAdmin && <NewRecord domain={domain} onDone={load} />}
       <div className="table-wrap flat">
         <table className="rows">
-          <thead><tr><th>Name</th><th>Typ</th><th>Ziel</th><th className="hide-sm">TTL</th><th>DynDNS</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Typ</th><th>Ziel</th><th className="hide-sm"><Term k="ttl">TTL</Term></th><th>DynDNS</th><th></th></tr></thead>
           <tbody>
             {d.records.map((r) => (
               <tr key={r.id}>
@@ -142,20 +143,21 @@ export default function Dns({ user }) {
   return (
     <>
       <header className="page-head"><h1>DNS</h1></header>
+      <PageIntro id="dns" />
       {!st.configured ? (
         <EmptyState title="Porkbun ist noch nicht verbunden" text="Lege bei Porkbun unter Account → API Access einen Schlüssel an und schalte bei jeder Domain unter „Details“ den API-Zugriff ein. Dann trägst du beides unter Administration ein.">
           {isAdmin && <Link className="btn primary" to="/admin?tab=dns">Zur Administration</Link>}
         </EmptyState>
       ) : (
         <>
-          <div className="dns-hero panel">
+          <div className="dns-hero panel" data-tour="dns-hero">
             <div>
-              <span className="eyebrow">Öffentliche IP</span>
+              <span className="eyebrow">Öffentliche IP <InfoTip k="public_ip" /></span>
               <div className="ip-big mono">{ip.ip || "unbekannt"}</div>
               <span className="muted small">{ip.source ? `ermittelt über ${ip.source}` : ""}{ip.checked_at ? `, ${fmtAgo(ip.checked_at)}` : ""}{ip.since ? ` · unverändert seit ${fmtAgo(ip.since).replace("vor ", "")}` : ""}</span>
             </div>
             <div>
-              <span className="eyebrow">DynDNS</span>
+              <span className="eyebrow">DynDNS <InfoTip k="dyndns" /></span>
               <div className="dyn-line">
                 {st.dyndns_enabled ? <Pill status="ok">alle {st.dyndns_interval_min} Min.</Pill> : <Pill status="paused">aus</Pill>}
                 <span className="muted small">{st.dyn_records.length} Record(s){last ? `, zuletzt ${fmtAgo(last.at)}` : ""}</span>
@@ -167,9 +169,9 @@ export default function Dns({ user }) {
           {st.error && <p className="error">{st.error}</p>}
           {st.domains.length === 0 && !st.error && <p className="muted">Keine Domains gefunden. Ist bei den Domains der API-Zugriff eingeschaltet?</p>}
           {st.domains.length > 0 && (
-            <section className="panel">
+            <section className="panel" data-tour="dns-records">
               <div className="panel-head">
-                <h2>Records</h2>
+                <h2><Term k="record">Records</Term></h2>
                 {st.domains.length > 1 && (
                   <select value={domain} onChange={(e) => setDomain(e.target.value)} aria-label="Domain" className="auto">
                     {st.domains.map((d) => <option key={d}>{d}</option>)}
@@ -184,7 +186,7 @@ export default function Dns({ user }) {
       )}
       {st.npm_configured && (
         <section className="panel">
-          <div className="panel-head"><h2>Abgleich mit dem Proxy Manager</h2>
+          <div className="panel-head"><h2>Abgleich mit dem Proxy Manager <InfoTip title="Abgleich" label="Was macht der Abgleich?">Für jeden Dienst im Proxy Manager prüft NetworkHelper, ob es bei Porkbun einen passenden Eintrag gibt. Ausrufezeichen heißt: Der Name ist noch nicht im Telefonbuch, Besucher finden den Dienst nicht. Ein Klick auf „Anlegen“ behebt das.</InfoTip></h2>
             {st.npm_sync?.at && <span className="muted small">Abgleich {fmtAgo(st.npm_sync.at)}</span>}</div>
           {st.configured ? <NpmSync isAdmin={isAdmin} status={st} /> : <p className="muted">Braucht die Porkbun-Verbindung.</p>}
         </section>

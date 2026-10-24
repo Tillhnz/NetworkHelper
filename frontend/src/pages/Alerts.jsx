@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, fmtDateTime, SEVERITY } from "../api.js";
 import { Loading, toast } from "../components/feedback.jsx";
 import { EmptyState, Pill } from "../components/ui.jsx";
+import { PageIntro } from "../components/help.jsx";
 
 const FILTERS = [["all", "Alle"], ["crit", SEVERITY.crit], ["warn", SEVERITY.warn], ["info", SEVERITY.info]];
 
@@ -22,7 +23,7 @@ export default function Alerts({ user }) {
   return (
     <>
       <header className="page-head"><h1>Meldungen</h1></header>
-      <p className="muted lead">Alles, was NetworkHelper gemeldet hat. Per E-Mail gehen nur Meldungen ab der Stufe, die unter Administration → E-Mail eingestellt ist.</p>
+      <PageIntro id="alerts" />
       <div className="chips">
         {FILTERS.map(([k, l]) => <button key={k} className={`chip ${filter === k ? "on" : ""}`} onClick={() => setFilter(k)}>{l}</button>)}
       </div>

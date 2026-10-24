@@ -4,9 +4,28 @@ import { api, fmtAgo, fmtCompact, fmtNum, KIND_TEXT } from "../api.js";
 import { HBars, Legend, TrafficBars } from "../components/charts.jsx";
 import { Loading } from "../components/feedback.jsx";
 import { Country, CountUp, Dot, EmptyState, Kpi, Pill, ScoreRing, usePoll } from "../components/ui.jsx";
+import { InfoTip, PageIntro, Term, useHelp } from "../components/help.jsx";
 
 const LEVEL_TEXT = { ok: "Alles im grünen Bereich", warn: "Ein paar Dinge solltest du prüfen", crit: "Hier besteht Handlungsbedarf" };
 const AREA_LINK = { ports: "/security?tab=ports", sites: "/security?tab=sites", incidents: "/security?tab=incidents", uptime: "/uptime" };
+
+/** Angebot für die Tour, solange sie noch nicht gemacht wurde. */
+function TourOffer() {
+  const { user, startTour, hidden, hideHint } = useHelp();
+  if (user.tour_done || hidden.includes("tour-offer")) return null;
+  return (
+    <section className="panel tour-offer">
+      <div className="grow">
+        <h2>Neu hier?</h2>
+        <p className="muted">Eine kurze Tour zeigt dir in zwei Minuten, wo du was findest und was die Farben und Zahlen bedeuten.</p>
+      </div>
+      <div className="actions">
+        <button className="btn primary" onClick={startTour}>Tour starten</button>
+        <button className="btn" onClick={() => hideHint("tour-offer")}>Nein danke</button>
+      </div>
+    </section>
+  );
+}
 
 function SetupHints({ data }) {
   const hints = [];
@@ -44,18 +63,20 @@ export default function Overview() {
           <p className="muted small head-sub">
             <Dot tone={agents.online ? "ok" : agents.total ? "crit" : "muted"} pulse={!!agents.online} />{" "}
             {agents.total ? `${agents.online} von ${agents.total} Agenten online` : "Noch kein Agent verbunden"}
-            {ip && <> · Öffentliche IP <code>{ip}</code></>}
+            {ip && <> · <Term k="public_ip">Öffentliche IP</Term> <code>{ip}</code></>}
           </p>
         </div>
       </header>
 
+      <TourOffer />
+      <PageIntro id="overview" />
       <SetupHints data={data} />
 
       <div className="hero-grid">
-        <section className={`panel status-hero status-${security.level}`}>
+        <section className={`panel status-hero status-${security.level}`} data-tour="score">
           <ScoreRing score={security.score} level={security.level} />
           <div className="status-text">
-            <span className="eyebrow">Sicherheitsstatus</span>
+            <span className="eyebrow">Sicherheitsstatus <InfoTip k="score" /></span>
             <h2>{LEVEL_TEXT[security.level]}</h2>
             {security.reasons.length === 0 ? (
               <p className="muted">Keine unerwarteten offenen Ports, gültige Zertifikate, keine offenen kritischen Vorfälle.</p>
@@ -71,8 +92,8 @@ export default function Overview() {
             )}
           </div>
         </section>
-        <section className="panel">
-          <div className="panel-head"><h2>Dienste</h2><Link className="link small" to="/uptime">Alle</Link></div>
+        <section className="panel" data-tour="services">
+          <div className="panel-head"><h2>Dienste <InfoTip k="uptime" /></h2><Link className="link small" to="/uptime">Alle</Link></div>
           {monitors.total === 0 ? <p className="muted">Noch keine Dienste überwacht.</p> : (
             <>
               <p className="big-ratio"><strong><CountUp value={monitors.up} /></strong><span className="muted"> / {monitors.total} erreichbar</span></p>
@@ -89,7 +110,7 @@ export default function Overview() {
         </section>
       </div>
 
-      <div className="kpis">
+      <div className="kpis" data-tour="kpis">
         <Kpi value={<CountUp value={access.total} format={fmtCompact} />} label="Zugriffe in 24 Std." sub={`${share} % von außen`} to="/access" />
         <Kpi value={<CountUp value={access.unique_ips} format={fmtNum} />} label="verschiedene IP-Adressen" to="/access" />
         <Kpi value={fmtNum(incidents.open)} label="offene Vorfälle (7 Tage)" tone={incidents.open ? "warn" : undefined} to="/security?tab=incidents" />
@@ -120,7 +141,7 @@ export default function Overview() {
           )}
         </section>
         <section className="panel">
-          <div className="panel-head"><h2>Letzte Vorfälle</h2><Link className="link small" to="/security?tab=incidents">Alle</Link></div>
+          <div className="panel-head"><h2>Letzte Vorfälle <InfoTip k="incident" /></h2><Link className="link small" to="/security?tab=incidents">Alle</Link></div>
           {incidents.recent.length === 0 ? <p className="muted">Keine auffälligen Zugriffe in den letzten 24 Stunden.</p> : (
             <ul className="event-list">
               {incidents.recent.map((i) => (

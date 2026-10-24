@@ -60,7 +60,7 @@ def agent_row(a: Agent) -> dict:
 def install_command(request: Request, token: str) -> str:
     base = settings.public_url.rstrip("/")
     # Für Agenten im Heimnetz ist die interne Adresse meist besser; die Oberfläche bietet beide an
-    return f"curl -fsSL {base}/api/agent/files/install.sh | sudo bash -s -- --server {base} --token {token}"
+    return f"curl -fsSL {base}/api/agent/files/install.sh | bash -s -- --server {base} --token {token}"
 
 
 # ---------- Verwaltung ----------

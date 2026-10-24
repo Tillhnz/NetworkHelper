@@ -4,9 +4,10 @@ import { Segmented, Switch } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { CopyLine, Country, Dot, EmptyState, Pill, usePoll } from "../components/ui.jsx";
 import { IpDetail } from "./Access.jsx";
+import { InfoTip, PageIntro, Term } from "../components/help.jsx";
 
 function installCommand(server, token, enforce) {
-  return `curl -fsSL ${server}/api/agent/files/install.sh | sudo bash -s -- --server ${server} --token ${token}${enforce ? " --enforce-blocks" : ""}`;
+  return `curl -fsSL ${server}/api/agent/files/install.sh | bash -s -- --server ${server} --token ${token}${enforce ? " --enforce-blocks" : ""}`;
 }
 
 /** Zeigt den Installationsbefehl nach dem Anlegen oder Erneuern; der Token ist nur jetzt sichtbar. */
@@ -19,7 +20,7 @@ function InstallBox({ created, onDone }) {
       <ol className="steps">
         <li>Öffne eine Konsole auf dem Server oder LXC mit dem Nginx Proxy Manager (in Proxmox: Container → Console, oder per SSH).</li>
         <li>Prüfe die Adresse: Der Server muss NetworkHelper darunter erreichen. Im Heimnetz ist die interne Adresse meist die beste Wahl.</li>
-        <li>Führe den Befehl als root aus. Er installiert Python (falls nötig), den Agenten und einen systemd-Dienst und findet den Proxy Manager selbst.</li>
+        <li>Führe den Befehl als root aus (in der Proxmox-Konsole bist du das automatisch). Er installiert Python (falls nötig), den Agenten und einen systemd-Dienst und findet den Proxy Manager selbst.</li>
       </ol>
       <div className="form-grid">
         <label className="span-all">Adresse von NetworkHelper
@@ -86,7 +87,7 @@ function AgentCard({ a, isAdmin, onChanged, onIp }) {
           {info.load && <div><dt>Last</dt><dd>{info.load.join(" · ")}</dd></div>}
           {memUsed != null && <div><dt>Arbeitsspeicher</dt><dd>{Math.round(memUsed * 100)} % von {fmtBytes(info.mem_total)}</dd></div>}
           <div><dt>Protokollzeilen</dt><dd>{fmtNum(a.lines_total)}{a.parse_errors > 0 && <span className="muted small"> ({fmtNum(a.parse_errors)} unlesbar)</span>}</dd></div>
-          <div><dt>Sperrliste</dt><dd>{a.enforce_blocks ? <Pill status="ok">{a.block_status || "aktiv"}</Pill> : <span className="muted">nicht umgesetzt</span>}</dd></div>
+          <div><dt><Term k="blocklist">Sperrliste</Term></dt><dd>{a.enforce_blocks ? <Pill status="ok">{a.block_status || "aktiv"}</Pill> : <span className="muted">nicht umgesetzt</span>}</dd></div>
         </dl>
       )}
 
@@ -102,7 +103,7 @@ function AgentCard({ a, isAdmin, onChanged, onIp }) {
         <div className="grid-2 tight">
           <div>
             <div className="panel-head sub">
-              <h3 className="sub-title">Aktive Verbindungen ({fmtNum(est.length)})</h3>
+              <h3 className="sub-title">Aktive Verbindungen ({fmtNum(est.length)}) <InfoTip k="connection" /></h3>
               <Segmented value={scope} onChange={setScope} options={[{ value: "public", label: "Von außen" }, { value: "all", label: "Alle" }]} />
             </div>
             {byRemote.length === 0 ? <p className="muted small">Gerade keine {scope === "public" ? "Verbindungen aus dem Internet" : "Verbindungen"}.</p> : (
@@ -127,7 +128,7 @@ function AgentCard({ a, isAdmin, onChanged, onIp }) {
             {byRemote.length > 15 && <button className="link small" onClick={() => setShowAll(!showAll)}>{showAll ? "Weniger" : `Alle ${byRemote.length} zeigen`}</button>}
           </div>
           <div>
-            <h3 className="sub-title">Offene Ports auf dem Server ({a.listening.length})</h3>
+            <h3 className="sub-title">Offene <Term k="port">Ports</Term> auf dem Server ({a.listening.length})</h3>
             <ul className="port-chips">
               {a.listening.map((l) => (
                 <li key={`${l.proto}${l.port}${l.process}`} title={`${l.addr}:${l.port}`}>
@@ -172,12 +173,13 @@ export default function Connections({ user }) {
   return (
     <>
       <header className="page-head"><h1>Verbindungen</h1></header>
-      <p className="muted lead">Jeder Server mit Agent meldet alle 30 Sekunden, wer gerade verbunden ist und welche Ports offen sind. Der Agent auf dem Proxy Manager liefert außerdem die Zugriffe.</p>
+      <PageIntro id="connections" />
       {error && <p className="error" role="alert">{error}</p>}
       {created && <InstallBox created={created} onDone={() => setCreated(null)} />}
+      <div data-tour="agents">
       {isAdmin && !created && (
         <form className="inline-form" onSubmit={create}>
-          <label className="grow">Neuer Agent
+          <label className="grow"><span>Neuer <Term k="agent">Agent</Term></span>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Proxy-LXC" maxLength={80} />
           </label>
           <button className="btn primary">Agent hinzufügen</button>
@@ -188,6 +190,7 @@ export default function Connections({ user }) {
       ) : agents.map((a) => (
         <AgentCard key={a.id} a={a} isAdmin={isAdmin} onIp={setIp} onChanged={(r) => { if (r?.token) setCreated(r); load(); }} />
       ))}
+      </div>
       {ip && <IpDetail ip={ip} onClose={() => setIp(null)} onFilter={(x) => { window.location.href = `/access?ip=${encodeURIComponent(x)}`; }} isAdmin={isAdmin} />}
     </>
   );

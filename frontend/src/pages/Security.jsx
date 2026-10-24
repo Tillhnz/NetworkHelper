@@ -5,6 +5,7 @@ import { Switch } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { Country, EmptyState, Grade, Pill } from "../components/ui.jsx";
 import { IpDetail } from "./Access.jsx";
+import { InfoTip, PageIntro, Term } from "../components/help.jsx";
 
 const TABS = [["ports", "Offene Ports"], ["sites", "Zertifikate & Header"], ["incidents", "Vorfälle"], ["blocks", "Sperrliste"]];
 
@@ -39,7 +40,7 @@ function Ports({ isAdmin }) {
     <>
       <section className="panel">
         <div className="panel-head">
-          <h2>Von außen erreichbar</h2>
+          <h2>Von außen erreichbar <InfoTip k="open_port" /></h2>
           {isAdmin && <button className="btn" onClick={scan} disabled={d.running}>{d.running ? "Scan läuft …" : "Jetzt scannen"}</button>}
         </div>
         <p className="muted small">
@@ -50,7 +51,7 @@ function Ports({ isAdmin }) {
         {open.length === 0 ? <p className="ok">Keine offenen Ports gefunden.</p> : (
           <div className="table-wrap flat">
             <table className="rows">
-              <thead><tr><th>Port</th><th>Dienst</th><th>Ziel</th><th>Quelle</th><th>Seit</th><th>Erwartet</th></tr></thead>
+              <thead><tr><th>Port</th><th>Dienst</th><th>Ziel</th><th>Quelle</th><th>Seit</th><th>Erwartet <InfoTip title="Erwartet" label="Was heißt erwartet?">Ports, die du absichtlich geöffnet hast, zum Beispiel 80 und 443 für den Proxy Manager. Für erwartete Ports gibt es keinen Alarm und keinen Punktabzug. Alles andere solltest du im Router schließen, wenn du es nicht brauchst.</InfoTip></th></tr></thead>
               <tbody>
                 {open.map((p) => (
                   <tr key={p.id} className={!p.expected ? (p.risky ? "row-crit" : "row-warn") : ""}>
@@ -76,7 +77,7 @@ function Ports({ isAdmin }) {
       </section>
       {last?.shodan && (
         <section className="panel">
-          <h2>Was Shodan sieht</h2>
+          <h2>Was <Term k="shodan">Shodan</Term> sieht</h2>
           {last.shodan.unknown ? <p className="muted">Shodan kennt deine Adresse nicht. Das ist gut: Sie wurde zuletzt nicht als offener Server erfasst.</p> : (
             <dl className="facts row">
               <div><dt>Ports</dt><dd className="mono">{last.shodan.ports.join(", ") || "keine"}</dd></div>
@@ -84,7 +85,7 @@ function Ports({ isAdmin }) {
               <div><dt>Bekannte Schwachstellen</dt><dd className={last.shodan.vulns.length ? "tone-crit" : ""}>{last.shodan.vulns.length ? last.shodan.vulns.slice(0, 8).join(", ") : "keine"}</dd></div>
             </dl>
           )}
-          <p className="muted small">Shodan durchsucht das Internet etwa wöchentlich. Der eigene Scan läuft aus deinem Heimnetz über die öffentliche Adresse (NAT-Loopback) und kann deshalb auch Ports des Routers zeigen, die von außen zu sind.</p>
+          <p className="muted small">Shodan durchsucht das Internet etwa wöchentlich. Der eigene Scan läuft aus deinem Heimnetz über die öffentliche Adresse (<Term k="nat_loopback">NAT-Loopback</Term>) und kann deshalb auch Ports des Routers zeigen, die von außen zu sind.</p>
         </section>
       )}
     </>
@@ -112,10 +113,10 @@ function Sites({ isAdmin }) {
   return (
     <section className="panel">
       <div className="panel-head">
-        <h2>Zertifikate und Sicherheits-Header</h2>
+        <h2><Term k="https">Zertifikate</Term> und <Term k="headers">Sicherheits-Header</Term></h2>
         {isAdmin && <button className="btn" onClick={check} disabled={d.running}>{d.running ? "Prüfe …" : "Alle prüfen"}</button>}
       </div>
-      <p className="muted small">Hostnamen aus dem Proxy Manager kommen automatisch dazu. Die Note fasst Zertifikat, TLS-Version, Weiterleitung auf HTTPS und Sicherheits-Header zusammen.</p>
+      <p className="muted small">Hostnamen aus dem Proxy Manager kommen automatisch dazu. Die <Term k="grade">Note</Term> fasst Zertifikat, TLS-Version, Weiterleitung auf HTTPS und Sicherheits-Header zusammen.</p>
       {isAdmin && (
         <form className="inline-form" onSubmit={add}>
           <label className="grow">Weiteren Hostnamen prüfen<input value={host} onChange={(e) => setHost(e.target.value)} placeholder="cloud.example.de" /></label>
@@ -175,7 +176,7 @@ function Incidents({ isAdmin, onIp }) {
   return (
     <section className="panel">
       <div className="panel-head">
-        <h2>Auffällige Zugriffe</h2>
+        <h2>Auffällige Zugriffe <InfoTip k="incident" /></h2>
         <div className="rule-actions">
           <Switch checked={openOnly} onChange={setOpenOnly}>Nur offene</Switch>
           {isAdmin && rows.some((r) => !r.acknowledged) && <button className="btn small" onClick={async () => { await api.post("/security/incidents/ack-all", {}); load(); }}>Alle als gesehen markieren</button>}
@@ -234,7 +235,7 @@ function Blocks({ isAdmin }) {
   if (!d) return <Loading rows={2} />;
   return (
     <section className="panel">
-      <h2>Sperrliste</h2>
+      <h2>Sperrliste <InfoTip k="blocklist" /></h2>
       {d.enforcing_agents.length ? (
         <p className="ok small">Umgesetzt durch: {d.enforcing_agents.join(", ")}. Gesperrte Adressen bekommen vom Proxy Manager „403 Forbidden“.</p>
       ) : (
@@ -282,7 +283,8 @@ export default function Security({ user }) {
   return (
     <>
       <header className="page-head"><h1>Sicherheit</h1></header>
-      <div className="tabs" role="tablist" aria-label="Bereiche">
+      <PageIntro id="security" />
+      <div className="tabs" role="tablist" aria-label="Bereiche" data-tour="security-tabs">
         {TABS.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setParams(k === "ports" ? {} : { tab: k })}>{label}</button>
         ))}

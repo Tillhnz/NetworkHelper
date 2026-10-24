@@ -1,10 +1,13 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useHelp } from "../components/help.jsx";
 import { api, setToken } from "../api.js";
 import { Segmented, Switch } from "../components/controls.jsx";
 import { toast } from "../components/feedback.jsx";
 import { getTheme, setTheme } from "../theme.js";
 
-export default function Settings({ user, onChange }) {
+export default function Settings({ user, onChange, onLogout }) {
+  const { startTour } = useHelp();
   const [theme, setLocalTheme] = useState(getTheme());
   const [pw, setPw] = useState({ current_password: "", new_password: "" });
   const [error, setError] = useState("");
@@ -36,6 +39,18 @@ export default function Settings({ user, onChange }) {
         <p className="muted small">Ob und ab welcher Stufe gemailt wird, legt der Administrator unter Administration → E-Mail fest.</p>
       </section>
       <section className="panel">
+        <h2>Einführung</h2>
+        <p className="muted small">Die Tour zeigt dir in zwei Minuten alle Bereiche. Ausgeblendete Erklärkästen auf den Seiten kannst du hier zurückholen.</p>
+        <div className="actions">
+          <button className="btn primary" onClick={startTour}>Tour starten</button>
+          <button className="btn" onClick={async () => { try { onChange(await api.put("/me/onboarding", { show_hints: true })); toast("Die Erklärungen sind wieder sichtbar."); } catch (e) { toast(e.message, "error"); } }}>
+            Erklärungen wieder anzeigen{user.hints_hidden?.length ? ` (${user.hints_hidden.length})` : ""}
+          </button>
+          {user.role === "admin" && <Link className="btn" to="/setup">Einrichtungs-Assistent öffnen</Link>}
+          <Link className="btn" to="/help">Hilfe und Lexikon</Link>
+        </div>
+      </section>
+      <section className="panel">
         <h2>Darstellung</h2>
         <Segmented value={theme} onChange={(v) => { setTheme(v); setLocalTheme(v); }}
                    options={[{ value: "auto", label: "Wie das Gerät" }, { value: "light", label: "Hell" }, { value: "dark", label: "Dunkel" }]} />
@@ -49,6 +64,7 @@ export default function Settings({ user, onChange }) {
           <div className="actions span-all">
             <button className="btn primary">Passwort ändern</button>
             <button type="button" className="btn" onClick={logoutAll}>Alle anderen Geräte abmelden</button>
+            <button type="button" className="btn" onClick={onLogout}>Abmelden</button>
           </div>
         </form>
       </section>
