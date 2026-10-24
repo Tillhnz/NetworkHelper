@@ -69,7 +69,7 @@ class UserPatch(BaseModel):
 
 def _user_row(u: User, me: User) -> dict:
     return {"id": u.id, "email": u.email, "role": u.role or "user", "active": u.active is not False,
-            "created_at": u.created_at.isoformat() if u.created_at else None, "is_me": u.id == me.id}
+            "created_at": u.created_at.isoformat() if u.created_at else None, "is_me": u.id == me.id, "two_factor": bool(u.totp_enabled)}
 
 
 @router.get("/users")
@@ -95,6 +95,21 @@ def update_user(user_id: int, data: UserPatch, admin: User = Depends(require_adm
             target.token_version = (target.token_version or 0) + 1
         audit.record(db, admin.email, "user.lock" if not data.active else "user.unlock", target.email)
     db.commit()
+    return _user_row(target, admin)
+
+
+@router.delete("/users/{user_id}/2fa")
+def reset_two_factor(user_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Zwei-Faktor-Anmeldung eines anderen Kontos zurücksetzen (Handy verloren). Das Konto wird überall abgemeldet."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(404, "Konto nicht gefunden")
+    if target.id == admin.id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Deine eigene Zwei-Faktor-Anmeldung änderst du unter Einstellungen.")
+    target.totp_enabled, target.totp_secret, target.totp_pending, target.recovery_codes, target.totp_enabled_at = False, None, None, None, None
+    target.token_version = (target.token_version or 0) + 1
+    db.commit()
+    audit.record(db, admin.email, "user.2fa_reset", target.email)
     return _user_row(target, admin)
 
 
@@ -132,6 +147,8 @@ def get_settings(admin: User = Depends(require_admin), db: Session = Depends(get
 @router.put("/settings")
 def save_settings(data: SettingsIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     try:
+        if data.values.get("two_factor_required") in (True, "true", "1", 1) and not admin.totp_enabled:
+            raise server_settings.SettingError("Richte zuerst für dein eigenes Konto die Zwei-Faktor-Anmeldung ein, sonst sperrst du dich aus.")
         server_settings.save(db, data.values)
     except server_settings.SettingError as e:
         raise HTTPException(422, str(e))

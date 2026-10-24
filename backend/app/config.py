@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     retention_days: int = 30
     geoip_enabled: bool = True
     geoip_city: bool = True
+    two_factor_required: bool = False  # alle Konten müssen die Zwei-Faktor-Anmeldung einrichten
     exposure_enabled: bool = True  # Selbsttest: sind .env, .git usw. auf den eigenen Seiten lesbar?
     exposure_interval_h: int = 24  # Städtedatenbank für die Karte (rund 130 MB)
 

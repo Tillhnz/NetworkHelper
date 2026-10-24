@@ -55,6 +55,7 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "auto_block_hours": ("int:1:8760", "security", False),
     "site_check_interval_h": ("int:1:168", "security", False),
     "exposure_enabled": ("bool", "security", False),
+    "two_factor_required": ("bool", "security", False),
     "exposure_interval_h": ("int:1:168", "security", False),
     "monitor_interval_s": ("int:20:3600", "security", False),
 }

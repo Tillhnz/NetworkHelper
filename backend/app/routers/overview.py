@@ -49,7 +49,11 @@ def security_status(db: Session) -> dict:
                                                                        Incident.last_seen >= now - timedelta(days=1))) or 0
     if crit:
         reasons.append({"points": 10, "level": "crit", "area": "incidents", "text": f"{crit} offene kritische Vorfälle (Anmeldeversuche)"})
-    from ..models import Exposure
+    from ..models import Exposure, User
+    no2fa = db.scalars(select(User.email).where(User.role == "admin", User.active.is_not(False), User.totp_enabled.is_not(True))).all()
+    if no2fa:
+        reasons.append({"points": 5, "level": "warn", "area": "account",
+                        "text": f"Administrator ohne Zwei-Faktor-Anmeldung: {', '.join(no2fa[:3])}"})
     for e in db.scalars(select(Exposure).where(Exposure.fixed_at.is_(None), Exposure.acknowledged.is_(False))):
         if e.result == "exposed":
             pts = 40 if e.severity == "crit" else 10

@@ -23,6 +23,13 @@ class User(Base):
     onboarding_done: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     tour_done: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     hints_hidden: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Zwei-Faktor-Anmeldung (TOTP): Geheimnis verschlüsselt, Wiederherstellungscodes nur als Hash
+    totp_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_pending: Mapped[str | None] = mapped_column(Text, nullable=True)  # während der Einrichtung
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    recovery_codes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Invite(Base):

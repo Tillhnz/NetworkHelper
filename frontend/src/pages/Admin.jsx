@@ -121,6 +121,7 @@ function Accounts() {
             <span>
               <strong>{u.email}</strong> <Pill tone={u.role === "admin" ? "ok" : "muted"}>{ROLE_TEXT[u.role]}</Pill>
               {!u.active && <> <Pill tone="due">Gesperrt</Pill></>}
+              {" "}{u.two_factor ? <Pill tone="ok">2FA</Pill> : <Pill tone="soon">ohne 2FA</Pill>}
               <span className="muted small"> seit {fmtDate(u.created_at)}{u.is_me ? ", das bist du" : ""}</span>
             </span>
             {!u.is_me && (
@@ -131,6 +132,9 @@ function Accounts() {
                 <button className="link small" onClick={() => run(() => api.put(`/admin/users/${u.id}`, { active: !u.active }), u.active ? "Konto gesperrt." : "Konto entsperrt.")}>
                   {u.active ? "Sperren" : "Entsperren"}
                 </button>
+                {u.two_factor && (
+                  <button className="link small" onClick={async () => { if (await confirmDialog(`Die Zwei-Faktor-Anmeldung von ${u.email} wird ausgeschaltet und das Konto überall abgemeldet. Danach reicht wieder das Passwort. Nur nutzen, wenn die Person Handy und Wiederherstellungscodes verloren hat.`, { title: "2FA zurücksetzen?", confirmLabel: "Zurücksetzen" })) run(() => api.del(`/admin/users/${u.id}/2fa`), "Zwei-Faktor-Anmeldung zurückgesetzt."); }}>2FA zurücksetzen</button>
+                )}
                 <button className="link small danger" onClick={async () => { if (await confirmDialog(`Konto ${u.email} löschen?`)) run(() => api.del(`/admin/users/${u.id}`), "Konto gelöscht."); }}>Löschen</button>
               </span>
             )}
@@ -367,6 +371,7 @@ const SECURITY = [
   { key: "scan_targets", type: "text", label: "Weitere Ziele", wide: true, placeholder: "z. B. vps.example.de", hint: "Die eigene öffentliche IP ist immer dabei." },
   { key: "shodan_enabled", type: "bool", label: "Shodan InternetDB fragen (sendet nur die öffentliche IP)" },
   { key: "site_check_interval_h", type: "number", label: "Zertifikate prüfen alle (Stunden)", min: 1, max: 168 },
+  { key: "two_factor_required", type: "bool", label: "Zwei-Faktor-Anmeldung für alle Konten vorschreiben", hint: "Wer sie noch nicht hat, muss sie bei der nächsten Anmeldung einrichten, bevor es weitergeht. Geht erst, wenn dein eigenes Konto sie hat." },
   { key: "exposure_enabled", type: "bool", label: "Selbsttest auf lesbare Geheimnisse (.env, .git, Sicherungen …)", hint: "Ruft bei deinen eigenen Seiten die Adressen auf, die Angreifer ausprobieren, und prüft den Inhalt. Nur GET-Anfragen, nichts wird gespeichert." },
   { key: "exposure_interval_h", type: "number", label: "Selbsttest alle (Stunden)", min: 1, max: 168 },
   { key: "monitor_interval_s", type: "number", label: "Erreichbarkeit prüfen alle (Sekunden)", min: 20, max: 3600 },

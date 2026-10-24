@@ -9,4 +9,5 @@ bcrypt==4.2.1
 httpx==0.28.1
 maxminddb==2.6.2
 cryptography==44.0.0
+segno==1.6.1
 tzdata

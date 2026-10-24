@@ -128,3 +128,19 @@ def test_exposure_verdicts():
     assert is_own_check("192.168.1.10", "NetworkHelper-Exposure-Check/1.0", None)
     assert is_own_check("84.1.2.3", "NetworkHelper-Exposure-Check/1.0", "84.1.2.3")
     assert not is_own_check("45.1.2.3", "NetworkHelper-Exposure-Check/1.0", "84.1.2.3")  # Tarnung zählt nicht
+
+
+def test_totp_rfc6238_and_recovery():
+    from app import totp
+    secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"  # "12345678901234567890"
+    assert totp.code_at(secret, 59 // 30) == "287082" and totp.code_at(secret, 1111111109 // 30) == "081804"
+    assert totp.verify(secret, "287082", now=59) == 1
+    assert totp.verify(secret, "287 082", now=75) == 1  # ein Schritt Toleranz, Leerzeichen egal
+    assert totp.verify(secret, "287082", last_step=1, now=59) is None  # nicht zweimal verwendbar
+    assert totp.verify(secret, "000000", now=59) is None
+    assert totp.decrypt(totp.encrypt("ABC")) == "ABC" and totp.decrypt("kaputt") is None
+    codes, stored = totp.new_recovery_codes()
+    assert len(codes) == 10 and totp.recovery_left(stored) == 10
+    rest = totp.use_recovery(stored, codes[3].lower().replace("-", " "))
+    assert totp.recovery_left(rest) == 9 and totp.use_recovery(rest, codes[3]) is None
+    assert "<svg" in totp.qr_svg(totp.uri(secret, "a@b.de"))

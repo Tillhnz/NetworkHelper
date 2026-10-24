@@ -13,6 +13,9 @@ export default function Login({ onLoggedIn }) {
   const [invite, setInvite] = useState(inviteParam);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [challenge, setChallenge] = useState(null);
+  const [code, setCode] = useState("");
+  const [useRecovery, setUseRecovery] = useState(false);
 
   useEffect(() => { api.get("/config").then((c) => setAllowRegistration(c.allow_registration)).catch(() => {}); }, []);
 
@@ -23,8 +26,13 @@ export default function Login({ onLoggedIn }) {
     try {
       const path = mode === "login" ? "/auth/login" : "/auth/register";
       const body = mode === "login" ? { email, password } : { email, password, invite: invite.trim() || null };
-      const { access_token } = await api.post(path, body);
-      setToken(access_token);
+      const r = await api.post(path, body);
+      if (r.two_factor) {
+        setChallenge(r.challenge);
+        setPassword("");
+        return;
+      }
+      setToken(r.access_token);
       await onLoggedIn();
       navigate("/");
     } catch (err) {
@@ -33,6 +41,44 @@ export default function Login({ onLoggedIn }) {
       setBusy(false);
     }
   }
+
+  async function submitCode(e) {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      const r = await api.post("/auth/login/2fa", { challenge, code });
+      setToken(r.access_token);
+      await onLoggedIn();
+      navigate("/");
+    } catch (err) {
+      setError(err.message);
+      if (/abgelaufen/.test(err.message)) { setChallenge(null); setCode(""); }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const secondStep = challenge && (
+    <form className="login-form" onSubmit={submitCode}>
+      <h1>Bestätigen</h1>
+      <p className="muted">{useRecovery
+        ? "Gib einen deiner Wiederherstellungscodes ein. Jeder funktioniert nur einmal."
+        : "Öffne deine Authenticator-App und gib den 6-stelligen Code für NetworkHelper ein."}</p>
+      <label>
+        {useRecovery ? "Wiederherstellungscode" : "Code aus der App"}
+        <input key={useRecovery ? "r" : "a"} className="code-input" value={code} onChange={(e) => setCode(e.target.value)} required autoFocus
+               inputMode={useRecovery ? "text" : "numeric"} autoComplete="one-time-code" maxLength={useRecovery ? 14 : 7}
+               placeholder={useRecovery ? "ABCDE-FGHJK" : "123456"} spellCheck={false} />
+      </label>
+      {error && <p className="error" role="alert">{error}</p>}
+      <button className="btn primary" disabled={busy}>Anmelden</button>
+      <button type="button" className="link" onClick={() => { setUseRecovery(!useRecovery); setCode(""); setError(""); }}>
+        {useRecovery ? "Doch den Code aus der App nehmen" : "Kein Zugriff auf die App? Wiederherstellungscode verwenden"}
+      </button>
+      <button type="button" className="link" onClick={() => { setChallenge(null); setCode(""); setError(""); setUseRecovery(false); }}>Zurück</button>
+    </form>
+  );
 
   return (
     <div className="login">
@@ -46,7 +92,7 @@ export default function Login({ onLoggedIn }) {
         <div className="login-km"><span>4</span><span>4</span><span>3</span></div>
         <p>Zugriffe, Sicherheit und DNS für die Dienste auf deinem Server, an einem Ort.</p>
       </div>
-      <form className="login-form" onSubmit={submit}>
+      {secondStep || <form className="login-form" onSubmit={submit}>
         <h1>{mode === "login" ? "Anmelden" : "Konto anlegen"}</h1>
         <label>
           E-Mail
@@ -70,7 +116,7 @@ export default function Login({ onLoggedIn }) {
         <button type="button" className="link" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>
           {mode === "login" ? "Noch kein Konto? Konto anlegen" : "Schon ein Konto? Anmelden"}
         </button>
-      </form>
+      </form>}
     </div>
   );
 }

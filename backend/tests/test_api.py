@@ -392,3 +392,63 @@ def test_exposure_selfcheck(client, admin, monkeypatch):
         assert db.query(Exposure).filter(Exposure.path == "/.env").one().fixed_at is not None
     eid = next(f["id"] for f in d["findings"] if f["path"] == "/backup.tar")
     assert client.put(f"/api/security/exposure/{eid}", headers=admin, json={"acknowledged": True}).json()["acknowledged"] is True
+
+
+def test_two_factor_flow(client, admin, monkeypatch):
+    import time as _time
+    from app import totp
+    r = client.post("/api/auth/register", json={"email": "zwei@example.de", "password": "geheim1234"})
+    if r.status_code != 201:  # Registrierung evtl. nur per Einladung
+        inv = client.post("/api/admin/invites", headers=admin).json()["code"]
+        r = client.post("/api/auth/register", json={"email": "zwei@example.de", "password": "geheim1234", "invite": inv})
+    h = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    assert client.get("/api/me/2fa", headers=h).json()["enabled"] is False
+    assert client.post("/api/me/2fa/setup", headers=h, json={"password": "falsch"}).status_code == 403
+    s = client.post("/api/me/2fa/setup", headers=h, json={"password": "geheim1234"}).json()
+    secret = s["secret"].replace(" ", "")
+    assert s["uri"].startswith("otpauth://totp/NetworkHelper:") and "<svg" in s["qr_svg"]
+    assert client.post("/api/me/2fa/enable", headers=h, json={"code": "000000"}).status_code == 422
+    now = [_time.time()]
+    monkeypatch.setattr(totp.time, "time", lambda: now[0])
+    code = lambda: totp.code_at(secret, totp.current_step())  # noqa: E731
+    en = client.post("/api/me/2fa/enable", headers=h, json={"code": code()}).json()
+    recovery = en["recovery_codes"]
+    assert len(recovery) == 10 and en["status"]["enabled"] and en["status"]["recovery_left"] == 10
+    assert client.get("/api/me", headers=h).status_code == 401  # alte Sitzung abgemeldet
+    h = {"Authorization": f"Bearer {en['access_token']}"}
+    assert client.get("/api/me", headers=h).json()["two_factor"] is True
+
+    # Anmeldung: erst Passwort, dann Code
+    step1 = client.post("/api/auth/login", json={"email": "zwei@example.de", "password": "geheim1234"}).json()
+    assert step1["two_factor"] is True and "access_token" not in step1
+    ch = step1["challenge"]
+    assert client.get("/api/me", headers={"Authorization": f"Bearer {ch}"}).status_code == 401  # kein Zugang ohne Code
+    assert client.post("/api/auth/login/2fa", json={"challenge": ch, "code": "123456"}).status_code == 401
+    assert client.post("/api/auth/login/2fa", json={"challenge": ch, "code": code()}).status_code == 401  # schon bei enable benutzt
+    now[0] += 30
+    ok = client.post("/api/auth/login/2fa", json={"challenge": ch, "code": code()})
+    assert ok.status_code == 200 and ok.json()["access_token"]
+    # Wiederherstellungscode, nur einmal
+    assert client.post("/api/auth/login/2fa", json={"challenge": ch, "code": recovery[0]}).status_code == 200
+    assert client.post("/api/auth/login/2fa", json={"challenge": ch, "code": recovery[0]}).status_code == 401
+    with SessionLocal() as db:
+        assert db.query(Alert).filter(Alert.kind == "account").count() >= 1
+    # Admin sieht den Status und kann zurücksetzen
+    users = client.get("/api/admin/users", headers=admin).json()
+    uid = next(u["id"] for u in users if u["email"] == "zwei@example.de")
+    assert next(u for u in users if u["id"] == uid)["two_factor"] is True
+    # Pflicht für alle: Konto ohne 2FA kommt nur noch an die Einrichtung
+    r = client.put("/api/admin/settings", headers=admin, json={"values": {"two_factor_required": True}})
+    assert r.status_code == 422 and "aussperrst" not in r.text and "eigene" in r.text  # Admin ohne 2FA würde sich aussperren
+    monkeypatch.setattr(settings, "two_factor_required", True)
+    assert client.get("/api/overview", headers=admin).status_code == 403
+    assert client.get("/api/me", headers=admin).json()["must_setup_2fa"] is True
+    assert client.get("/api/me/2fa", headers=admin).status_code == 200
+    assert client.get("/api/overview", headers=h).status_code == 200  # Konto mit 2FA arbeitet normal
+    monkeypatch.setattr(settings, "two_factor_required", False)
+    assert client.get("/api/overview", headers=admin).status_code == 200
+    reasons = client.get("/api/overview", headers=admin).json()["security"]["reasons"]
+    assert any(r["area"] == "account" for r in reasons)
+    r = client.delete(f"/api/admin/users/{uid}/2fa", headers=admin).json()
+    assert r["two_factor"] is False
+    assert client.post("/api/auth/login", json={"email": "zwei@example.de", "password": "geheim1234"}).json()["access_token"]

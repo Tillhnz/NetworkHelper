@@ -98,6 +98,10 @@ export const GLOSSARY = {
     title: "Programm (User-Agent)",
     text: "Womit jemand zugreift, zum Beispiel ein Browser, die Nextcloud-App oder ein Skript. Angriffswerkzeuge verraten sich hier oft selbst.",
   },
+  two_factor: {
+    title: "Zwei-Faktor-Anmeldung",
+    text: "Neben dem Passwort brauchst du beim Anmelden einen zweiten Nachweis: einen 6-stelligen Code, den eine App auf deinem Handy alle 30 Sekunden neu erzeugt. Wer nur dein Passwort kennt, kommt so nicht hinein. Für den Notfall gibt es Wiederherstellungscodes, die du sicher ablegst.",
+  },
   attack_hit: {
     title: "Ist ein Angriff gelungen?",
     text: "Angreifer probieren bei jedem Server Adressen wie /.env oder /.git/config aus, weil dort oft Passwörter liegen. Bekommen sie „200 OK“, kann das ein Treffer sein, oder die App zeigt einfach ihre Startseite. NetworkHelper ruft diese Adressen deshalb selbst auf und prüft, ob wirklich eine solche Datei ausgeliefert wird. Nur dann gilt der Angriff als gelungen.",

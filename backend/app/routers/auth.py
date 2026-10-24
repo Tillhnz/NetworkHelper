@@ -7,11 +7,11 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import audit, ratelimit
+from .. import audit, ratelimit, totp
 from ..config import settings
 from ..database import get_db
 from ..models import Invite, User
-from ..security import create_token, current_user, hash_password, is_admin, verify_password
+from ..security import create_challenge, create_token, current_user, hash_password, is_admin, read_challenge, verify_password
 
 router = APIRouter(prefix="/api", tags=["auth"])
 
@@ -60,7 +60,8 @@ def user_out(u: User) -> dict:
     admin = u.role == "admin"
     return {"id": u.id, "email": u.email, "role": "admin" if admin else "user", "is_admin": admin,
             "alert_email": u.alert_email if u.alert_email is not None else admin,
-            "onboarding_done": bool(u.onboarding_done), "tour_done": bool(u.tour_done), "hints_hidden": _hints(u)}
+            "onboarding_done": bool(u.onboarding_done), "tour_done": bool(u.tour_done), "hints_hidden": _hints(u),
+            "two_factor": bool(u.totp_enabled), "must_setup_2fa": bool(settings.two_factor_required and not u.totp_enabled)}
 
 
 class OnboardingIn(BaseModel):
@@ -115,9 +116,58 @@ def login(data: Credentials, request: Request, db: Session = Depends(get_db)):
     if not user or not ok:
         ratelimit.record_failure(data.email, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-Mail oder Passwort falsch")
-    ratelimit.record_success(data.email)
     if user.active is False:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Dieses Konto ist gesperrt.")
+    if user.totp_enabled:
+        # Passwort stimmt, jetzt fehlt noch der Code aus der App. Fehlversuche zählen weiter, bis der Code stimmt.
+        return {"two_factor": True, "challenge": create_challenge(user)}
+    ratelimit.record_success(data.email)
+    return token_out(user)
+
+
+class SecondFactorIn(BaseModel):
+    challenge: str = Field(max_length=1000)
+    code: str = Field(min_length=6, max_length=20)
+
+
+def _check_second_factor(user: User, code: str, db: Session) -> str | None:
+    """Prüft Code aus der App oder Wiederherstellungscode. Gibt 'app' bzw. 'recovery' zurück oder None."""
+    secret = totp.decrypt(user.totp_secret)
+    digits = "".join(ch for ch in code if ch.isdigit())
+    if secret and len(digits) == totp.DIGITS and len(code.strip()) <= 7:
+        step = totp.verify(secret, code, user.totp_last_step)
+        if step is not None:
+            user.totp_last_step = step
+            return "app"
+        return None
+    rest = totp.use_recovery(user.recovery_codes, code)
+    if rest is not None:
+        user.recovery_codes = rest
+        return "recovery"
+    return None
+
+
+@router.post("/auth/login/2fa")
+def login_second_factor(data: SecondFactorIn, request: Request, db: Session = Depends(get_db)):
+    user = read_challenge(data.challenge, db)
+    if user is None or not user.totp_enabled:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Die Anmeldung ist abgelaufen. Bitte gib dein Passwort erneut ein.")
+    ip = ratelimit.client_ip(request)
+    ratelimit.check_login(user.email, ip)
+    kind = _check_second_factor(user, data.code, db)
+    if kind is None:
+        ratelimit.record_failure(user.email, ip)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Der Code stimmt nicht. Achte darauf, den aktuellen Code aus der App zu nehmen.")
+    ratelimit.record_success(user.email)
+    db.commit()
+    if kind == "recovery":
+        left = totp.recovery_left(user.recovery_codes)
+        audit.record(db, user.email, "2fa.recovery_used", f"noch {left} Codes")
+        from .. import notify
+        notify.raise_alert(db, "warn", "account", f"Anmeldung mit Wiederherstellungscode: {user.email}",
+                           f"Für das Konto {user.email} wurde ein Wiederherstellungscode benutzt. Übrig: {left}.\n"
+                           "Warst du das nicht, ändere sofort das Passwort und richte die Zwei-Faktor-Anmeldung neu ein.",
+                           dedupe_key=f"recovery:{user.id}:{left}", dedupe_hours=1)
     return token_out(user)
 
 
@@ -182,3 +232,88 @@ def delete_account(data: PasswordConfirmIn, request: Request, user: User = Depen
         raise HTTPException(status.HTTP_409_CONFLICT, "Du bist der letzte Administrator. Ernenne zuerst jemand anderen.")
     db.delete(user)
     db.commit()
+
+
+# ---------- Zwei-Faktor-Anmeldung einrichten ----------
+
+class TwoFactorSetupIn(BaseModel):
+    password: str = Field(max_length=200)
+
+
+class CodeIn(BaseModel):
+    code: str = Field(min_length=6, max_length=20)
+
+
+class TwoFactorConfirmIn(BaseModel):
+    password: str = Field(max_length=200)
+    code: str = Field(min_length=6, max_length=20)
+
+
+def two_factor_out(u: User) -> dict:
+    return {"enabled": bool(u.totp_enabled), "enabled_at": u.totp_enabled_at.isoformat() if u.totp_enabled_at else None,
+            "recovery_left": totp.recovery_left(u.recovery_codes) if u.totp_enabled else 0,
+            "required": settings.two_factor_required}
+
+
+@router.get("/me/2fa")
+def two_factor_status(user: User = Depends(current_user)):
+    return two_factor_out(user)
+
+
+@router.post("/me/2fa/setup")
+def two_factor_setup(data: TwoFactorSetupIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if user.totp_enabled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Die Zwei-Faktor-Anmeldung ist schon eingerichtet.")
+    check_password(user, data.password, request)
+    secret = totp.new_secret()
+    user.totp_pending = totp.encrypt(secret)
+    db.commit()
+    uri = totp.uri(secret, user.email)
+    return {"secret": " ".join(secret[i:i + 4] for i in range(0, len(secret), 4)), "uri": uri, "qr_svg": totp.qr_svg(uri)}
+
+
+@router.post("/me/2fa/enable")
+def two_factor_enable(data: CodeIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    secret = totp.decrypt(user.totp_pending)
+    if not secret:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Bitte starte die Einrichtung neu.")
+    step = totp.verify(secret, data.code)
+    if step is None:
+        raise HTTPException(422, "Der Code stimmt nicht. Prüfe, ob die Uhrzeit am Handy automatisch gestellt wird, und nimm den aktuellen Code.")
+    codes, hashed = totp.new_recovery_codes()
+    user.totp_secret, user.totp_pending, user.totp_enabled = totp.encrypt(secret), None, True
+    user.totp_last_step, user.totp_enabled_at, user.recovery_codes = step, datetime.utcnow(), hashed
+    user.token_version = (user.token_version or 0) + 1  # andere Geräte müssen sich neu (mit Code) anmelden
+    db.commit()
+    audit.record(db, user.email, "2fa.enable", "")
+    return {**token_out(user), "recovery_codes": codes, "status": two_factor_out(user)}
+
+
+@router.post("/me/2fa/disable")
+def two_factor_disable(data: TwoFactorConfirmIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if not user.totp_enabled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Die Zwei-Faktor-Anmeldung ist nicht eingerichtet.")
+    if settings.two_factor_required:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Die Zwei-Faktor-Anmeldung ist für alle Konten vorgeschrieben.")
+    check_password(user, data.password, request)
+    if _check_second_factor(user, data.code, db) is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Der Code stimmt nicht.")
+    user.totp_enabled, user.totp_secret, user.totp_pending, user.recovery_codes, user.totp_enabled_at = False, None, None, None, None
+    user.token_version = (user.token_version or 0) + 1
+    db.commit()
+    audit.record(db, user.email, "2fa.disable", "")
+    return {**token_out(user), "status": two_factor_out(user)}
+
+
+@router.post("/me/2fa/recovery")
+def two_factor_new_recovery(data: TwoFactorConfirmIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if not user.totp_enabled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Die Zwei-Faktor-Anmeldung ist nicht eingerichtet.")
+    check_password(user, data.password, request)
+    if _check_second_factor(user, data.code, db) is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Der Code stimmt nicht.")
+    codes, hashed = totp.new_recovery_codes()
+    user.recovery_codes = hashed
+    db.commit()
+    audit.record(db, user.email, "2fa.recovery_new", "")
+    return {"recovery_codes": codes, "status": two_factor_out(user)}

@@ -981,3 +981,23 @@ ul.bullet li{margin:.3rem 0}
   .hits-table tr{display:block;padding:.55rem 0;border-bottom:1px solid var(--line)}
   .hits-table td{display:block;border:0;padding:.1rem 0}
 }
+
+/* ---------- Zwei-Faktor-Anmeldung ---------- */
+.code-input{font-family:var(--font-mono);font-size:1.4rem;letter-spacing:.2em;text-align:center;max-width:16rem}
+.tfa-step{display:grid;gap:.75rem}
+.tfa-howto{margin:0;padding-left:1.2rem;display:grid;gap:.3rem}
+.tfa-qr-row{display:flex;gap:1.25rem;align-items:flex-start;flex-wrap:wrap}
+.tfa-qr{background:#fff;border-radius:10px;padding:.4rem;line-height:0;flex:none}
+.tfa-qr svg{width:200px;height:200px}
+.tfa-qr-row .grow{display:grid;gap:.6rem;min-width:min(100%,16rem)}
+.tfa-secret{font-size:1.05rem;letter-spacing:.06em;overflow-wrap:anywhere;background:var(--panel-2);border-radius:6px;padding:.45rem .6rem}
+.recovery-codes{columns:2;column-gap:3rem;margin:.25rem 0;padding-left:2rem;font-size:1.05rem;max-width:26rem}
+.recovery-codes li{padding:.15rem 0;padding-left:.3rem;break-inside:avoid}
+.gate{max-width:46rem;margin:2rem auto;padding:0 1rem}
+.gate h1{font-size:1.8rem;margin:0 0 .5rem}
+@media print{
+  body *{visibility:hidden}
+  .tfa-step,.tfa-step *{visibility:visible}
+  .tfa-step{position:absolute;left:0;top:0;color:#000}
+  .tfa-step .actions,.tfa-step label.check{display:none}
+}

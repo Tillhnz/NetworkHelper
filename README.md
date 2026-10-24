@@ -92,6 +92,17 @@ curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | bash -s -- --u
 
 Den Agenten kannst du auch auf weiteren Servern installieren. Ohne Proxy Manager meldet er nur Verbindungen und Ports.
 
+## Zwei-Faktor-Anmeldung
+
+Unter **Einstellungen → Zwei-Faktor-Anmeldung** verbindest du dein Konto mit einer Authenticator-App (Google Authenticator, Microsoft Authenticator, 2FAS, Aegis, Bitwarden …). Danach fragt die Anmeldung nach Passwort **und** dem 6-stelligen Code aus der App. Bei der Einrichtung bekommst du 10 Wiederherstellungscodes für den Notfall (je einmal gültig). Administratoren können unter Administration → Sicherheit die Zwei-Faktor-Anmeldung für alle Konten vorschreiben und unter Konten die 2FA eines Nutzers zurücksetzen.
+
+Hat der einzige Administrator Handy **und** Wiederherstellungscodes verloren, hilft der Notfallbefehl auf dem Server:
+
+```bash
+cd ~/NetworkHelper   # dein Installationsordner
+docker compose exec backend python -m app.cli reset-2fa admin@example.de
+```
+
 ## Gut zu wissen
 
 - **Portscan aus dem Heimnetz.** Der eigene Scan läuft über die öffentliche Adresse und wird vom Router per NAT-Loopback beantwortet. Er zeigt zuverlässig die Portweiterleitungen, kann aber auch Ports des Routers selbst zeigen, die von außen geschlossen sind. Shodan liefert den echten Außenblick, allerdings nur etwa wöchentlich.

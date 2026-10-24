@@ -5,6 +5,8 @@ import { api, setToken } from "../api.js";
 import { Segmented, Switch } from "../components/controls.jsx";
 import { toast } from "../components/feedback.jsx";
 import { getTheme, setTheme } from "../theme.js";
+import TwoFactor from "../components/TwoFactor.jsx";
+import { Term } from "../components/help.jsx";
 
 export default function Settings({ user, onChange, onLogout }) {
   const { startTour } = useHelp();
@@ -55,8 +57,12 @@ export default function Settings({ user, onChange, onLogout }) {
         <Segmented value={theme} onChange={(v) => { setTheme(v); setLocalTheme(v); }}
                    options={[{ value: "auto", label: "Wie das Gerät" }, { value: "light", label: "Hell" }, { value: "dark", label: "Dunkel" }]} />
       </section>
+      <section className="panel" id="zwei-faktor">
+        <h2><Term k="two_factor">Zwei-Faktor-Anmeldung</Term></h2>
+        <TwoFactor onChanged={async () => { try { onChange(await api.get("/me")); } catch { /* egal */ } }} />
+      </section>
       <section className="panel">
-        <h2>Sicherheit</h2>
+        <h2>Passwort und Geräte</h2>
         <form className="form-grid" onSubmit={changePw}>
           <label>Aktuelles Passwort<input type="password" value={pw.current_password} onChange={(e) => setPw({ ...pw, current_password: e.target.value })} autoComplete="current-password" required /></label>
           <label>Neues Passwort<input type="password" value={pw.new_password} onChange={(e) => setPw({ ...pw, new_password: e.target.value })} minLength={8} autoComplete="new-password" required /></label>

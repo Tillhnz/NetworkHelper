@@ -4,6 +4,7 @@ import { api, clearToken, getToken, setUnauthorizedHandler } from "./api.js";
 import Shell from "./components/Shell.jsx";
 import { ErrorBoundary, FeedbackHost } from "./components/feedback.jsx";
 import { HelpProvider } from "./components/help.jsx";
+import { TwoFactorGate } from "./components/TwoFactor.jsx";
 import Access from "./pages/Access.jsx";
 import Admin from "./pages/Admin.jsx";
 import Alerts from "./pages/Alerts.jsx";
@@ -50,7 +51,7 @@ export default function App() {
 
   // Beim ersten Anmelden führt der Assistent Administratoren durch die Einrichtung
   useEffect(() => {
-    if (user?.role === "admin" && !user.onboarding_done && !sentToSetup.current && pathname !== "/setup") {
+    if (user?.role === "admin" && !user.must_setup_2fa && !user.onboarding_done && !sentToSetup.current && pathname !== "/setup") {
       sentToSetup.current = true;
       navigate("/setup");
     }
@@ -66,6 +67,15 @@ export default function App() {
           <Route path="/login" element={<Login onLoggedIn={loadUser} />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
+      </>
+    );
+  }
+
+  if (user.must_setup_2fa) {
+    return (
+      <>
+        <FeedbackHost />
+        <TwoFactorGate user={user} onDone={loadUser} onLogout={logout} />
       </>
     );
   }
