@@ -632,3 +632,30 @@ def test_domain_protection(client, admin, monkeypatch):
     assert client.post("/api/dns/protection/example.de/spf", headers=admin).status_code == 409  # schon gesetzt
     assert client.post("/api/dns/protection/fremd.de/spf", headers=admin).status_code == 404
     assert client.get("/api/dns/protection", headers=admin).json()["domains"][0]["ok"] is True
+
+
+def test_old_ip_findings_disappear(client, admin, monkeypatch):
+    from app import portscan, publicip, state
+    from app.models import PortFinding
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        state.put(db, "public_ip", {"ip": "79.208.166.153", "source": "test", "since": now.isoformat()})
+        db.add(PortFinding(target="84.133.221.52", port=8089, source="shodan", service="TR-069", first_seen=now, last_seen=now, open=True))
+        db.add(PortFinding(target="79.208.166.153", port=443, source="scan", service="HTTPS", first_seen=now, last_seen=now, open=True))
+        db.commit()
+    items = client.get("/api/security/ports", headers=admin).json()["items"]
+    assert {i["target"] for i in items} == {"79.208.166.153"}  # alte IP sofort ausgeblendet
+    monkeypatch.setattr(publicip, "current", lambda db, **kw: "79.208.166.153")
+    monkeypatch.setattr(portscan, "scan_host", lambda host, ports: _done({443: None}))
+    monkeypatch.setattr(portscan, "shodan_lookup", lambda ip: {"ports": [], "unknown": True})
+    monkeypatch.setattr(portscan.settings, "scan_targets", "")
+    with SessionLocal() as db:
+        res = portscan.run(db)
+        assert "84.133.221.52" in res["removed_old"]
+        assert db.query(PortFinding).filter(PortFinding.target == "84.133.221.52").count() == 0
+    item = next(i for i in client.get("/api/security/ports", headers=admin).json()["items"] if i["port"] == 443)
+    assert item["outside"] == "unknown"  # Shodan kennt die neue Adresse noch nicht: nicht „nur von innen“
+
+
+async def _done(value):
+    return value

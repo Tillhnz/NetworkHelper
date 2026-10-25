@@ -56,6 +56,12 @@ def current(db: Session, max_age: timedelta = timedelta(minutes=5), refresh: boo
     state.put(db, "public_ip", {"ip": ip, "source": source, "since": (info or {}).get("since") if old == ip else datetime.utcnow().isoformat()})
     if old and old != ip:
         notify.raise_alert(db, "info", "ip", f"Neue öffentliche IP: {ip}", f"Vorher: {old}", dedupe_key=f"ip:{ip}", dedupe_hours=1)
+        try:  # neue Adresse gleich prüfen, Treffer der alten fallen dabei weg
+            from . import scheduler
+            if settings.scan_enabled and settings.background_jobs:
+                scheduler.trigger("portscan")
+        except Exception:  # noqa: BLE001
+            pass
     return ip
 
 

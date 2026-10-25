@@ -19,7 +19,8 @@ def security_status(db: Session) -> dict:
     """Ampel aus offenen Ports, Zertifikaten, Headern, Vorfällen und Ausfällen. Jeder Abzug wird begründet."""
     reasons = []
     expected = portscan.expected(db)
-    open_ports = db.scalars(select(PortFinding).where(PortFinding.open.is_(True))).all()
+    targets = portscan.current_targets(db)
+    open_ports = [f for f in db.scalars(select(PortFinding).where(PortFinding.open.is_(True))) if not targets or f.target in targets]
     last = state.get(db, "portscan_last")
     seen = set()
     for f in open_ports:

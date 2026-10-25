@@ -35,11 +35,16 @@ SCANNER_RE = re.compile(
     r"/shell\b|/setup\.cgi|/goform/|/cdn-cgi/trace\.php|\.\./\.\./|/etc/passwd|/config\.json$|/sftp-config\.json|"
     r"/\.vscode/|/backup\.(zip|sql|tar)|/db\.sql|/dump\.sql|/admin\.php|/xampp|/druid/|/telescope/requests|/_ignition)"
 )
+# Eindeutige Angriffswerkzeuge: schon ein Treffer ist eine Warnung wert
 BAD_UA_RE = re.compile(
-    r"(?i)(sqlmap|nikto|nmap|masscan|zgrab|nuclei|gobuster|dirbuster|dirb/|wpscan|ffuf|feroxbuster|httpx - open-source|"
-    r"python-requests/2\.2[0-5]|go-http-client/1\.1$|libwww-perl|curl/7\.(2|3)\d\.|hello, world|zmeu|morfeus|jorgee|"
-    r"censysinspect|expanseinc|internet-measurement|l9explore|l9tcpid|odin\.io|paloaltonetworks|ccbot|visionheight)"
+    r"(?i)(sqlmap|nikto|nmap scripting|masscan|nuclei|gobuster|dirbuster|dirb/|wpscan|ffuf|feroxbuster|"
+    r"hello, world|zmeu|morfeus|jorgee|fuzz faster|acunetix|netsparker|openvas|whatweb|xray)"
 )
+# Allerweltsprogramme, die Bots gern benutzen; erst bei vielen Anfragen auffällig.
+# Forschungs-Scanner (Censys, Palo Alto Expanse, internet-measurement …) zählen nicht: sie ordnet „Wer & warum“ ein.
+WEAK_UA_RE = re.compile(r"(?i)(zgrab|python-requests/2\.2[0-5]|go-http-client/1\.1$|libwww-perl|curl/7\.(2|3)\d\.|httpx - open-source)")
+WEAK_UA_MIN = 20
+
 KIND_TEXT = {
     "scanner": "Suche nach Schwachstellen",
     "badagent": "Angriffswerkzeug erkannt",
@@ -166,8 +171,11 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
             if new:
                 changed.append(inc)
         bad = [e for e in evs if e.user_agent and BAD_UA_RE.search(e.user_agent)]
-        if bad:
-            inc, new = _upsert(db, ip, "badagent", "warn", len(bad), {e.host for e in bad}, sample(bad), evs[-1], now)
+        weak = [e for e in evs if e.user_agent and not BAD_UA_RE.search(e.user_agent) and WEAK_UA_RE.search(e.user_agent)]
+        if bad or len(weak) >= WEAK_UA_MIN:
+            sev = "warn" if bad else "info"
+            hits_ = bad or weak
+            inc, new = _upsert(db, ip, "badagent", sev, len(hits_), {e.host for e in hits_}, sample(hits_), evs[-1], now)
             touched[id(inc)] = inc
             if new:
                 changed.append(inc)

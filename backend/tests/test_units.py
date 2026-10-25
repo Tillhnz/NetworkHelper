@@ -197,3 +197,20 @@ def test_domainguard_analyze():
     assert mail["mail"] and c["dmarc"]["fix"] == "dmarc_monitor" and c["spf"]["fix"] is None and c["caa"]["severity"] == "crit"
     loose = analyze("example.de", [{"name": "", "type": "TXT", "content": '"v=spf1 include:_spf.google.com ~all"'}])
     assert next(x for x in loose["checks"] if x["key"] == "spf")["fix"] is None  # vorhandenen SPF nicht überschreiben
+
+
+def test_outside_view_after_ip_change():
+    from app.portscan import outside_view
+    base = {"targets": ["79.208.166.153"], "started": "2026-10-25T07:00:00"}
+    assert outside_view({**base, "shodan": {"ports": [], "unknown": True}}, "79.208.166.153", 443, "scan") == "unknown"
+    recent = {**base, "ip_since": "2026-10-24T20:00:00", "shodan": {"ports": [80]}}
+    assert outside_view(recent, "79.208.166.153", 443, "scan") == "unknown"  # Shodan war seit dem Wechsel noch nicht da
+    old = {**base, "ip_since": "2026-09-01T00:00:00", "shodan": {"ports": [80]}}
+    assert outside_view(old, "79.208.166.153", 443, "scan") == "no" and outside_view(old, "79.208.166.153", 80, "scan") == "yes"
+
+
+def test_weak_user_agents_are_not_attacks():
+    from app.detect import BAD_UA_RE, WEAK_UA_RE
+    assert BAD_UA_RE.search("sqlmap/1.7") and not BAD_UA_RE.search("Go-http-client/1.1")
+    assert WEAK_UA_RE.search("Go-http-client/1.1") and WEAK_UA_RE.search("Mozilla/5.0 zgrab/0.x")
+    assert not BAD_UA_RE.search("Mozilla/5.0 (compatible; CensysInspect/1.1)") and not WEAK_UA_RE.search("CensysInspect/1.1")

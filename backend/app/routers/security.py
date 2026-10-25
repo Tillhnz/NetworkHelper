@@ -21,7 +21,9 @@ router = APIRouter(prefix="/api/security", tags=["security"])
 @router.get("/ports")
 def ports(user: User = Depends(current_user), db: Session = Depends(get_db)):
     ok = portscan.expected(db)
-    rows = db.scalars(select(PortFinding).order_by(PortFinding.open.desc(), PortFinding.port)).all()
+    targets = portscan.current_targets(db)
+    rows = [f for f in db.scalars(select(PortFinding).order_by(PortFinding.open.desc(), PortFinding.port))
+            if not targets or f.target in targets]  # alte IP nach einem Wechsel nicht mehr zeigen
     last = state.get(db, "portscan_last")
     items = [{
         "outside": portscan.outside_view(last, f.target, f.port, f.source),

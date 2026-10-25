@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 from sqlalchemy import select
@@ -58,9 +58,22 @@ def outside_view(summary: dict | None, target: str, port: int, source: str) -> s
         return "yes"
     sh = (summary or {}).get("shodan")
     targets = (summary or {}).get("targets") or []
-    if not sh or not targets or target != targets[0]:
-        return "unknown"
-    return "yes" if port in (sh.get("ports") or []) else "no"
+    if not sh or not targets or target != targets[0] or sh.get("unknown"):
+        return "unknown"  # Shodan kennt diese Adresse (noch) nicht
+    if port in (sh.get("ports") or []):
+        return "yes"
+    since = (summary or {}).get("ip_since")
+    started = (summary or {}).get("started")
+    if since and started:
+        try:
+            if datetime.fromisoformat(started) - datetime.fromisoformat(since) < SHODAN_GRACE:
+                return "unknown"  # IP erst kürzlich gewechselt: Shodan war vermutlich noch nicht da
+        except ValueError:
+            pass
+    return "no"
+
+
+SHODAN_GRACE = timedelta(days=14)
 
 
 def ports_to_scan() -> list[int]:
@@ -145,6 +158,18 @@ def _record(db: Session, target: str, source: str, found: dict[int, str | None],
     return fresh
 
 
+def current_targets(db: Session) -> list[str]:
+    """Aktuelle Ziele: die gerade bekannte öffentliche IP und die eingetragenen Zusatzziele."""
+    out = []
+    ip = publicip.info(db).get("ip")
+    if ip:
+        out.append(ip)
+    for t in [x.strip() for x in settings.scan_targets.split(",") if x.strip()]:
+        if t not in out:
+            out.append(t)
+    return out
+
+
 def run(db: Session) -> dict:
     """Ein kompletter Durchlauf. Ergebnis wird auch unter state 'portscan_last' gespeichert."""
     started = datetime.utcnow()
@@ -156,7 +181,8 @@ def run(db: Session) -> dict:
         if t not in targets:
             targets.append(t)
     ports = ports_to_scan()
-    summary = {"started": started.isoformat(), "targets": targets, "ports": len(ports), "open": {}, "errors": [], "shodan": None}
+    summary = {"started": started.isoformat(), "targets": targets, "ports": len(ports), "open": {}, "errors": [], "shodan": None,
+               "ip_since": publicip.info(db).get("since")}
     if not targets:
         summary["errors"].append("Keine öffentliche IP gefunden und keine Ziele eingetragen.")
     new_findings: list[PortFinding] = []
@@ -184,6 +210,13 @@ def run(db: Session) -> dict:
                 notify.raise_alert(db, "warn", "ports", f"Shodan meldet {len(vulns)} bekannte Schwachstelle(n) für {ip}",
                                    "Betroffene Kennungen: " + ", ".join(vulns[:20]) + "\nDetails: https://internetdb.shodan.io/" + ip,
                                    dedupe_key=f"shodan-vulns:{ip}:{','.join(sorted(vulns))}", dedupe_hours=24 * 7)
+    if targets:
+        # Treffer zu Adressen, die nicht mehr geprüft werden (z. B. die alte IP nach einem Wechsel), gehören nicht mehr zu dir
+        stale = db.scalars(select(PortFinding).where(PortFinding.target.not_in(targets))).all()
+        for f in stale:
+            db.delete(f)
+        if stale:
+            summary["removed_old"] = sorted({f.target for f in stale})
     db.commit()
     ok_ports = expected(db)
     for f in new_findings:
