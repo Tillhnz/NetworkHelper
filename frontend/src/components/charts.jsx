@@ -2,7 +2,7 @@ import { useState } from "react";
 import { fmtNum, toDate } from "../api.js";
 
 export const CLASS_COLORS = { 2: "var(--celeste)", 3: "var(--sky)", 4: "var(--amber)", 5: "var(--signal)" };
-const CLASS_LABEL = { 2: "2xx", 3: "3xx", 4: "4xx", 5: "5xx" };
+const CLASS_LABEL = { 2: "Erfolgreich", 3: "Weitergeleitet", 4: "Abgelehnt / nicht gefunden", 5: "Fehler beim Dienst" };
 
 function label(iso, bucket) {
   const d = toDate(iso);
@@ -56,7 +56,7 @@ export function TrafficBars({ series, bucket = 3600, height = 190, onPick }) {
       {hs && (
         <text x={Math.min(Math.max(padL + hover * bw + bw / 2, 140), W - 140)} y="12" textAnchor="middle" className="chart-tip">
           {tipLabel(hs.t, bucket)}: {fmtNum(totals[hover])} Zugriffe
-          {["4", "5"].filter((k) => hs[k]).map((k) => ` · ${fmtNum(hs[k])} ${CLASS_LABEL[k]}`).join("")}
+          {["4", "5"].filter((k) => hs[k]).map((k) => ` · ${fmtNum(hs[k])} ${CLASS_LABEL[k].toLowerCase()}`).join("")}
         </text>
       )}
     </svg>

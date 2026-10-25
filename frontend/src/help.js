@@ -92,7 +92,7 @@ export const GLOSSARY = {
   },
   status_code: {
     title: "Antwortcode",
-    text: "Jede Anfrage bekommt eine dreistellige Antwort. 2xx: hat geklappt. 3xx: weitergeleitet. 4xx: Fehler auf Seite des Besuchers, etwa 401/403 (keine Berechtigung, oft ein falsches Passwort) oder 404 (gibt es nicht). 5xx: Fehler beim Dienst selbst, etwa 502 (Dienst antwortet nicht).",
+    text: "Jede Anfrage bekommt eine dreistellige Antwortnummer. Die erste Ziffer sagt, wie es ausging: 2 = erfolgreich (Grün), 3 = weitergeleitet, etwa von http auf https (Blau), 4 = abgelehnt oder nicht gefunden, etwa 401/403 (keine Berechtigung, oft ein falsches Passwort) oder 404 (gibt es nicht) (Gelb), 5 = Fehler beim Dienst selbst, etwa 502 (Dienst antwortet nicht) (Rot). Viele gelbe Balken von fremden Adressen sind meist Bots, die herumprobieren.",
   },
   user_agent: {
     title: "Programm (User-Agent)",

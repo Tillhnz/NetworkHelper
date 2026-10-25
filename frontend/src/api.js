@@ -117,7 +117,18 @@ export const countryName = (code) => {
 export const flag = (code) =>
   code && /^[A-Z]{2}$/.test(code) ? String.fromCodePoint(...[...code].map((c) => 0x1f1a5 + c.charCodeAt(0))) : "🏠";
 
-export const STATUS_CLASS = { 2: "Erfolg (2xx)", 3: "Weiterleitung (3xx)", 4: "Client-Fehler (4xx)", 5: "Server-Fehler (5xx)" };
+export const STATUS_CLASS = { 2: "Erfolgreich", 3: "Weitergeleitet", 4: "Abgelehnt oder nicht gefunden", 5: "Fehler beim Dienst" };
+
+// Was ein Antwortcode im Alltag bedeutet
+const STATUS_TEXT = {
+  200: "OK", 201: "angelegt", 204: "OK", 206: "Teilstück",
+  301: "umgeleitet", 302: "umgeleitet", 303: "umgeleitet", 304: "unverändert", 307: "umgeleitet", 308: "umgeleitet",
+  400: "ungültig", 401: "Login fehlt", 403: "verboten", 404: "gibt es nicht", 405: "nicht erlaubt", 408: "zu langsam",
+  413: "zu groß", 429: "zu viele", 444: "gesperrt", 499: "abgebrochen",
+  500: "Dienstfehler", 502: "Dienst aus", 503: "nicht verfügbar", 504: "Dienst zu langsam",
+};
+export const statusText = (code) => STATUS_TEXT[code] || STATUS_CLASS[String(code)[0]] || "";
+export const statusLabel = (code) => `${code} · ${statusText(code)}`;
 
 export const SEVERITY = { info: "Hinweis", warn: "Warnung", crit: "Kritisch" };
 

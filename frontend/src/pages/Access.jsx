@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, countryName, fmtAgo, fmtBytes, fmtCompact, fmtDate, fmtDateTime, fmtNum, fmtTime, KIND_TEXT, qs, STATUS_CLASS, statusTone } from "../api.js";
+import { api, countryName, fmtAgo, fmtBytes, fmtCompact, fmtDate, fmtDateTime, fmtNum, fmtTime, KIND_TEXT, qs, STATUS_CLASS, statusLabel, statusText, statusTone } from "../api.js";
 import { HBars, Legend, TrafficBars } from "../components/charts.jsx";
 import { Segmented } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
@@ -73,7 +73,7 @@ export function IpDetail({ ip, onClose, onFilter, isAdmin }) {
             </div>
             <div>
               <h3 className="sub-title">Antworten</h3>
-              <HBars items={d.statuses.map((s) => ({ key: s.status, label: String(s.status), value: s.count, color: `var(--tone-${statusTone(s.status)})` }))} />
+              <HBars items={d.statuses.map((s) => ({ key: s.status, label: statusLabel(s.status), value: s.count, color: `var(--tone-${statusTone(s.status)})` }))} />
             </div>
           </div>
           {d.user_agents.length > 0 && (
@@ -86,7 +86,7 @@ export function IpDetail({ ip, onClose, onFilter, isAdmin }) {
           <ul className="req-list">
             {d.recent.map((e) => (
               <li key={e.id}>
-                <span className={`code code-${statusTone(e.status)}`}>{e.status}</span>
+                <span className={`code code-${statusTone(e.status)}`} title={statusText(e.status)}>{e.status}</span>
                 <span className="mono grow" title={e.path}>{e.method} {e.host}{e.path}</span>
                 <span className="muted small nowrap">{fmtTime(e.ts, true)}</span>
               </li>
@@ -200,7 +200,7 @@ export default function Access({ user }) {
           <div className="kpis">
             <Kpi value={fmtCompact(data.total)} label="Zugriffe" />
             <Kpi value={fmtNum(data.unique_ips)} label="verschiedene IP-Adressen" />
-            <Kpi value={data.total ? `${fmtNum((data.errors / data.total) * 100, 1)} %` : "–"} label="Fehlerantworten (4xx/5xx)" tone={data.errors / Math.max(1, data.total) > 0.2 ? "warn" : undefined} />
+            <Kpi value={data.total ? `${fmtNum((data.errors / data.total) * 100, 1)} %` : "–"} label="abgelehnt oder fehlgeschlagen" tone={data.errors / Math.max(1, data.total) > 0.2 ? "warn" : undefined} />
             <Kpi value={fmtNum(data.blocked)} label="abgewiesen" />
             <Kpi value={fmtBytes(data.bytes)} label="übertragen" />
           </div>
@@ -221,7 +221,7 @@ export default function Access({ user }) {
             </section>
             <section className="panel">
               <h2>Antworten <InfoTip k="status_code" /></h2>
-              <HBars items={data.statuses.map((s) => ({ key: s.status, label: String(s.status), value: s.count, color: `var(--tone-${statusTone(s.status)})`, onClick: () => set({ status: String(s.status)[0] }) }))} />
+              <HBars items={data.statuses.map((s) => ({ key: s.status, label: statusLabel(s.status), value: s.count, color: `var(--tone-${statusTone(s.status)})`, onClick: () => set({ status: String(s.status)[0] }) }))} />
             </section>
           </div>
 
@@ -263,7 +263,7 @@ export default function Access({ user }) {
                     {events?.map((e) => (
                       <tr key={e.id} className={e.blocked ? "is-blocked" : ""}>
                         <td className="nowrap muted small">{fmtTime(e.ts, true)}<br />{fmtDate(e.ts)}</td>
-                        <td><span className={`code code-${statusTone(e.status)}`}>{e.status}</span></td>
+                        <td><span className={`code code-${statusTone(e.status)}`} title={statusText(e.status)}>{e.status}</span></td>
                         <td className="req"><span className="muted">{e.method}</span> <strong>{e.host}</strong><span className="mono path" title={e.path}>{e.path}</span></td>
                         <td className="nowrap"><Country code={e.country} org={e.as_org} compact /> <button className="linklike mono" onClick={() => setDetail(e.ip)}>{e.ip}</button></td>
                         <td className="hide-sm muted small ellipsis ua" title={e.user_agent || ""}>{e.user_agent || "–"}</td>
