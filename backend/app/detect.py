@@ -224,12 +224,22 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
 
 
 def forget_own(db: Session) -> dict:
-    """Räumt Vorfälle und automatische Sperren auf, die deine eigene öffentliche IP (auch frühere) betreffen."""
+    """Räumt Vorfälle und automatische Sperren auf, die deine eigene öffentliche IP (auch frühere) betreffen,
+    und markiert ihre Zugriffe als Heimnetz."""
+    from sqlalchemy import update
     from . import publicip
     periods = publicip.own_periods(db)
     own = {p[0] for p in periods}
     if not own:
         return {"incidents": 0, "blocks": 0}
+    for ip, start, end in periods:
+        conds = [AccessEvent.ip == ip, AccessEvent.as_org.is_distinct_from("Heimnetz")]
+        if start is not None:
+            conds.append(AccessEvent.ts >= start - timedelta(minutes=10))
+        if end is not None:
+            conds.append(AccessEvent.ts <= end + timedelta(minutes=10))
+        db.execute(update(AccessEvent).where(*conds).values(as_org="Heimnetz", country=None, asn=None))
+    db.commit()
     incs = db.scalars(select(Incident).where(Incident.ip.in_(own))).all()
     n_inc = 0
     for inc in incs:

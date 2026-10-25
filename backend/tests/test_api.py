@@ -680,9 +680,23 @@ def test_own_public_ip_is_never_an_incident(client, admin):
         assert db.query(Incident).filter(Incident.ip == "79.208.166.200").count() == 0
         assert detect.forget_own(db) == {"incidents": 1, "blocks": 1}
         assert db.query(BlockEntry).filter(BlockEntry.cidr == "84.133.221.99").count() == 0
+        # rückwirkend als Heimnetz gekennzeichnet
+        assert {e.as_org for e in db.query(AccessEvent).filter(AccessEvent.ip == "79.208.166.200")} == {"Heimnetz"}
     v = client.get("/api/access/visitors?range=24h", headers=admin).json()
     me = next(i for i in v["items"] if i["ip"] == "79.208.166.200")
     assert me["category"] == "self"
+    # neue Zeilen von der eigenen IP kommen gleich als Heimnetz an
+    r = client.post("/api/agents", headers=admin, json={"name": "Heim-Test"})
+    ah = {"Authorization": f"Bearer {r.json()['token']}"}
+    client.post("/api/agent/logs", headers=ah, json={"lines": [line("79.208.166.200", path="/heim-test")]})
+    with SessionLocal() as db:
+        ev = db.query(AccessEvent).filter(AccessEvent.path == "/heim-test").one()
+        assert ev.as_org == "Heimnetz" and ev.country is None
+    internal = client.get("/api/access/events?range=1h&scope=internal&q=/heim-test", headers=admin).json()["items"]
+    assert len(internal) == 1
+    m = client.get("/api/access/map?range=24h", headers=admin).json()
+    assert all(t["ip"] != "79.208.166.200" for p in m["points"] for t in p["top"])
+    assert client.get("/api/access/ip/79.208.166.200", headers=admin).json()["as_org"] == "Heimnetz"
 
 
 def test_cannot_block_own_ip(client, admin):

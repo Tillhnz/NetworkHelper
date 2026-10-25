@@ -125,7 +125,9 @@ block_cache = _BlockCache()
 
 def ingest(db: Session, lines: list[str], agent_id: int | None = None) -> tuple[int, int]:
     """Wertet Zeilen aus und speichert sie. Gibt (gespeichert, nicht lesbar) zurück."""
+    from . import publicip
     nets = block_cache.get(db)
+    periods = publicip.own_periods(db)
     ok = bad = 0
     rows = []
     for line in lines:
@@ -134,7 +136,10 @@ def ingest(db: Session, lines: list[str], agent_id: int | None = None) -> tuple[
             if line.strip():
                 bad += 1
             continue
-        country, asn, org = geoip.lookup(ev["ip"])
+        if publicip.is_own(periods, ev["ip"], ev["ts"]):
+            country, asn, org = None, None, "Heimnetz"  # du selbst von zu Hause über deine Domain
+        else:
+            country, asn, org = geoip.lookup(ev["ip"])
         blocked = None
         if nets and ev["status"] == 403:
             addr = ipaddress.ip_address(ev["ip"])

@@ -142,6 +142,9 @@ def ip_detail(ip: str, user: User = Depends(current_user), db: Session = Depends
     conds = [E.ip == ip, E.ts >= since]
     total, first, last = db.execute(select(func.count(), func.min(E.ts), func.max(E.ts)).where(*conds)).one()
     country, asn, org = geoip.lookup(ip)
+    from .. import publicip as _pip
+    if _pip.is_own(_pip.own_periods(db), ip):
+        country, asn, org = None, None, "Heimnetz"
     hosts_ = db.execute(select(E.host, func.count()).where(*conds).group_by(E.host).order_by(func.count().desc()).limit(10)).all()
     statuses = db.execute(select(E.status, func.count()).where(*conds).group_by(E.status).order_by(func.count().desc()).limit(10)).all()
     agents = db.execute(select(E.user_agent, func.count()).where(*conds).group_by(E.user_agent).order_by(func.count().desc()).limit(5)).all()
@@ -194,7 +197,7 @@ def access_map(rng: str = Query("24h", alias="range"), host: str | None = None, 
     unplaced = 0
     for ip, c in classified.items():
         s = c["stats"]
-        if c["category"] == "home":
+        if c["category"] in ("home", "self"):
             continue
         loc = _place(ip, s.get("country"))
         if not loc:
