@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import notify, porkbun, state
@@ -68,3 +69,40 @@ def current(db: Session, max_age: timedelta = timedelta(minutes=5), refresh: boo
 def info(db: Session) -> dict:
     data, at = state.get_with_time(db, "public_ip")
     return {**(data or {}), "checked_at": at.isoformat() if at else None}
+
+
+def own_periods(db: Session) -> list[tuple[str, datetime | None, datetime | None]]:
+    """Zeiträume, in denen eine Adresse deine öffentliche IP war: (ip, von, bis). Offene Enden sind None.
+
+    Quelle: die aktuelle IP (seit „since“) und die Meldungen „Neue öffentliche IP: neu“ mit „Vorher: alt“.
+    """
+    from .models import Alert
+    out: list[tuple[str, datetime | None, datetime | None]] = []
+    info = state.get(db, "public_ip") or {}
+    if info.get("ip"):
+        try:
+            since = datetime.fromisoformat(info["since"]) if info.get("since") else None
+        except ValueError:
+            since = None
+        out.append((info["ip"], since, None))
+    changes = db.scalars(select(Alert).where(Alert.kind == "ip").order_by(Alert.created_at.desc()).limit(50)).all()
+    for a in changes:
+        new = (a.title or "").rsplit(" ", 1)[-1].strip()
+        old = (a.body or "").replace("Vorher:", "").strip().split()[0] if a.body and "Vorher:" in a.body else None
+        if old and _valid(old):
+            out.append((old, None, a.created_at))
+        if new and _valid(new) and not any(p[0] == new and p[2] is None for p in out):
+            out.append((new, a.created_at, None))
+    return out
+
+
+def is_own(periods, ip: str, ts: datetime | None = None) -> bool:
+    """War ip zum Zeitpunkt ts (oder irgendwann, wenn ts fehlt) deine öffentliche IP?"""
+    for addr, start, end in periods:
+        if addr != ip:
+            continue
+        if ts is None:
+            return True
+        if (start is None or ts >= start - timedelta(minutes=10)) and (end is None or ts <= end + timedelta(minutes=10)):
+            return True
+    return False

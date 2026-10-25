@@ -659,3 +659,36 @@ def test_old_ip_findings_disappear(client, admin, monkeypatch):
 
 async def _done(value):
     return value
+
+
+def test_own_public_ip_is_never_an_incident(client, admin):
+    from app import detect, notify, state
+    from app.models import AccessEvent, BlockEntry
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        state.put(db, "public_ip", {"ip": "79.208.166.200", "source": "test", "since": (now - timedelta(hours=1)).isoformat()})
+        notify.raise_alert(db, "info", "ip", "Neue öffentliche IP: 79.208.166.200", "Vorher: 84.133.221.99")
+        db.commit()
+        # Alte Vorfälle und eine automatische Sperre der früheren eigenen IP
+        db.add(Incident(ip="84.133.221.99", kind="flood", severity="warn", count=1500, first_seen=now - timedelta(hours=5), last_seen=now - timedelta(hours=3)))
+        db.add(BlockEntry(cidr="84.133.221.99", reason="Automatisch", auto=True, created_by="automatisch"))
+        for i in range(80):
+            db.add(AccessEvent(ts=now - timedelta(seconds=i), host="cloud.example.de", method="GET", path=f"/nicht-da-{i}", status=404, bytes=1,
+                               ip="79.208.166.200", country="DE", as_org="Deutsche Telekom AG", user_agent="Nextcloud-android"))
+        db.commit()
+        detect.run(db)
+        assert db.query(Incident).filter(Incident.ip == "79.208.166.200").count() == 0
+        assert detect.forget_own(db) == {"incidents": 1, "blocks": 1}
+        assert db.query(BlockEntry).filter(BlockEntry.cidr == "84.133.221.99").count() == 0
+    v = client.get("/api/access/visitors?range=24h", headers=admin).json()
+    me = next(i for i in v["items"] if i["ip"] == "79.208.166.200")
+    assert me["category"] == "self"
+
+
+def test_cannot_block_own_ip(client, admin):
+    from app import state
+    with SessionLocal() as db:
+        state.put(db, "public_ip", {"ip": "79.208.166.201", "source": "test", "since": datetime.utcnow().isoformat()})
+    r = client.post("/api/security/blocks", headers=admin, json={"cidr": "79.208.166.201", "hours": 1})
+    assert r.status_code == 422 and "eigene" in r.text
+    assert client.post("/api/security/blocks", headers=admin, json={"cidr": "79.208.166.0/24", "hours": 1}).status_code == 422

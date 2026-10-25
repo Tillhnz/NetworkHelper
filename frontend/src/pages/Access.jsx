@@ -49,7 +49,7 @@ export function IpDetail({ ip, onClose, onFilter, isAdmin }) {
           </dl>
           <div className="actions">
             <button className="btn" onClick={() => { onFilter(ip); onClose(); }}>Nur diese IP anzeigen</button>
-            {isAdmin && d.scope === "public" && !d.blocked && (
+            {isAdmin && d.scope === "public" && !d.blocked && d.reason?.category !== "self" && (
               <>
                 <button className="btn danger-outline" onClick={() => block(24)}>24 Std. sperren</button>
                 <button className="btn danger-outline" onClick={() => block(null)}>Dauerhaft sperren</button>

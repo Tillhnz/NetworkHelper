@@ -195,6 +195,11 @@ def add_block(data: BlockIn, admin: User = Depends(require_admin), db: Session =
         cidr = data.cidr.strip()
         if "/" not in cidr and classify(cidr) in ("private", "loopback"):
             raise ValueError("Adressen aus dem Heimnetz werden nicht gesperrt, sonst sperrst du dich womöglich selbst aus.")
+        import ipaddress
+        from .. import publicip
+        own = publicip.info(db).get("ip")
+        if own and ipaddress.ip_address(own) in ipaddress.ip_network(cidr, strict=False):
+            raise ValueError("Das ist deine eigene öffentliche IP. Damit würdest du deinen ganzen Haushalt aussperren.")
         row = detect.add_block(db, cidr, data.reason or "", data.hours, by=admin.email)
     except ValueError as e:
         raise HTTPException(422, str(e))

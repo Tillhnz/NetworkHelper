@@ -135,8 +135,11 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
 
     from . import exposure, publicip
     own_ip = publicip.info(db).get("ip")
+    periods = publicip.own_periods(db)
     by_ip: dict[str, list[AccessEvent]] = defaultdict(list)
     for e in events:
+        if publicip.is_own(periods, e.ip, e.ts):
+            continue  # du selbst von zu Hause über deine Domain (öffentliche IP), nie ein Angriff
         if is_public(e.ip) and not e.blocked and not exposure.is_own_check(e.ip, e.user_agent, own_ip):
             by_ip[e.ip].append(e)
     if not by_ip:
@@ -202,7 +205,7 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
     if settings.auto_block:
         for inc in touched.values():
             serious = inc.severity == "crit" or (inc.kind in ("scanner", "badagent") and inc.severity == "warn")
-            if serious and inc.ip not in blocked_now and not is_blocked(db, inc.ip):
+            if serious and inc.ip not in blocked_now and not is_blocked(db, inc.ip) and not publicip.is_own(periods, inc.ip, now):
                 blocked_now[inc.ip] = add_block(db, inc.ip, f"Automatisch: {KIND_TEXT[inc.kind]}", hours=settings.auto_block_hours,
                                                 by="automatisch", auto=True)
     for inc in changed:
@@ -218,3 +221,26 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
             notify.raise_alert(db, "warn", "block", f"{ip} automatisch gesperrt", f"Für {settings.auto_block_hours} Stunden wegen anhaltender Angriffe.",
                                dedupe_key=f"autoblock:{ip}", dedupe_hours=24)
     return changed
+
+
+def forget_own(db: Session) -> dict:
+    """Räumt Vorfälle und automatische Sperren auf, die deine eigene öffentliche IP (auch frühere) betreffen."""
+    from . import publicip
+    periods = publicip.own_periods(db)
+    own = {p[0] for p in periods}
+    if not own:
+        return {"incidents": 0, "blocks": 0}
+    incs = db.scalars(select(Incident).where(Incident.ip.in_(own))).all()
+    n_inc = 0
+    for inc in incs:
+        if publicip.is_own(periods, inc.ip, inc.last_seen):
+            db.delete(inc)
+            n_inc += 1
+    n_blk = 0
+    for b in db.scalars(select(BlockEntry).where(BlockEntry.auto.is_(True), BlockEntry.cidr.in_(list(own)))):
+        db.delete(b)
+        n_blk += 1
+    if n_inc or n_blk:
+        db.commit()
+        block_cache.invalidate()
+    return {"incidents": n_inc, "blocks": n_blk}

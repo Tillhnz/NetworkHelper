@@ -48,6 +48,7 @@ class Job:
 
 def _maintenance(db) -> None:
     now = datetime.utcnow()
+    detect.forget_own(db)
     db.execute(delete(AccessEvent).where(AccessEvent.ts < now - timedelta(days=settings.retention_days)))
     db.execute(delete(MonitorResult).where(MonitorResult.ts < now - timedelta(days=90)))
     db.execute(delete(Alert).where(Alert.created_at < now - timedelta(days=90)))

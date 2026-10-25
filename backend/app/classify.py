@@ -104,8 +104,9 @@ def explain(stats: dict, public_ip: str | None) -> dict:
     scope = ip_scope(ip)
     if scope in ("private", "loopback"):
         return _result("home", ["Private Adresse aus deinem eigenen Netz"])
-    if public_ip and ip == public_ip:
-        return _result("self", ["Das ist deine eigene öffentliche IP-Adresse"])
+    own = public_ip if isinstance(public_ip, (set, frozenset)) else {public_ip}
+    if ip in own:
+        return _result("self", ["Das ist deine eigene öffentliche IP-Adresse (jetzt oder früher)"])
     if "bruteforce" in incidents or (stats.get("auth_fail", 0) >= 10 and stats.get("auth_fail", 0) / count > 0.6) or (stats.get("auth_fail", 0) >= 5 and stats.get("auth_fail", 0) / count > 0.9):
         return _result("bruteforce", [f"{stats.get('auth_fail', 0)} abgelehnte Anmeldungen (401/403)"] + ([f"Programm: {top_ua[:60]}"] if top_ua else []))
     research = _match(_RESEARCH, ua_text) or _match(_RESEARCH_ORG, org)
@@ -189,8 +190,11 @@ def collect(db: Session, since: datetime, ips: list[str] | None = None, limit: i
 
 
 def classify_ips(db: Session, since: datetime, public_ip: str | None, ips: list[str] | None = None, limit: int = 2000, extra_conds=()) -> dict[str, dict]:
+    from . import publicip
     stats = collect(db, since, ips, limit, extra_conds)
-    return {ip: {**explain(s, public_ip), "stats": s} for ip, s in stats.items()}
+    own = {public_ip} | {p[0] for p in publicip.own_periods(db) if p[2] is None or p[2] >= since}
+    own.discard(None)
+    return {ip: {**explain(s, own), "stats": s} for ip, s in stats.items()}
 
 
 def summarize(classified: dict[str, dict]) -> list[dict]:
