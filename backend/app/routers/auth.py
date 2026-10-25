@@ -80,8 +80,11 @@ def token_out(user: User, response: Response | None = None, request: Request | N
     token = create_token(user)
     if response is not None:
         secure = bool(request and (request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").lower() == "https"))
-        response.set_cookie(COOKIE, token, max_age=settings.token_expire_days * 86400, httponly=True, samesite="strict",
-                            secure=secure, path="/api")
+        samesite = settings.cookie_samesite.lower() if settings.cookie_samesite.lower() in ("strict", "lax", "none") else "strict"
+        if samesite == "none" and not secure:
+            samesite = "lax"  # Browser verwerfen SameSite=None ohne HTTPS
+        response.set_cookie(COOKIE, token, max_age=settings.token_expire_days * 86400, httponly=True, samesite=samesite,
+                            secure=secure or samesite == "none", path="/api")
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -205,8 +208,11 @@ def logout_all(request: Request, response: Response, user: User = Depends(curren
 
 
 @router.post("/auth/logout", status_code=204)
-def logout(response: Response):
-    response.delete_cookie(COOKIE, path="/api")
+def logout(request: Request, response: Response):
+    token_out_attrs = {"path": "/api", "httponly": True}
+    if settings.cookie_samesite.lower() == "none":
+        token_out_attrs.update(secure=True, samesite="none")
+    response.delete_cookie(COOKIE, **token_out_attrs)
 
 
 @router.post("/auth/session")

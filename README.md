@@ -114,6 +114,16 @@ cd ~/NetworkHelper   # dein Installationsordner
 docker compose exec backend python -m app.cli reset-2fa admin@example.de
 ```
 
+## In Home Assistant einbetten
+
+Aus Sicherheitsgründen verbietet NetworkHelper, in fremde Seiten eingebettet zu werden (sonst könnte eine fremde Seite ihn unsichtbar einbetten und Klicks unterschieben). Für Home Assistant (Webseiten-Karte oder Seitenleisten-Eintrag) erlaubst du gezielt deine HA-Adressen in der `.env` im Installationsordner, genau so, wie du HA aufrufst:
+
+```bash
+FRAME_ANCESTORS=https://ha.example.de http://192.168.1.20:8123
+```
+
+Danach `docker compose up -d`. Läuft HA unter einer anderen Domain als NetworkHelper (z. B. per IP-Adresse oder über Nabu Casa), bleibt die Anmeldung im eingebetteten Fenster nur mit `COOKIE_SAMESITE=none` erhalten; das braucht HTTPS für NetworkHelper. Liegen beide unter derselben Domain (z. B. `ha.example.de` und `network.example.de`), reicht der Standard.
+
 ## Gut zu wissen
 
 - **Portscan aus dem Heimnetz.** Der eigene Scan läuft über die öffentliche Adresse und wird vom Router per NAT-Loopback beantwortet. Er zeigt zuverlässig die Portweiterleitungen, kann aber auch Ports des Routers selbst zeigen, die von außen geschlossen sind. Shodan liefert den echten Außenblick, allerdings nur etwa wöchentlich.

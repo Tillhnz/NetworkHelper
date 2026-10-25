@@ -29,6 +29,7 @@ services:
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-0}
       TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-strict}
       UPDATER_URL: ${UPDATER_URL:-http://updater:9000}
       # Startwerte; alles Weitere (Porkbun, Proxy Manager, E-Mail, Scans) stellst du unter Administration ein
       SMTP_HOST: ${SMTP_HOST:-}
@@ -61,6 +62,8 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    environment:
+      FRAME_ANCESTORS: ${FRAME_ANCESTORS:-}
     ports:
       - "${WEB_PORT:-8080}:80"
 

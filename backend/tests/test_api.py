@@ -706,3 +706,16 @@ def test_cannot_block_own_ip(client, admin):
     r = client.post("/api/security/blocks", headers=admin, json={"cidr": "79.208.166.201", "hours": 1})
     assert r.status_code == 422 and "eigene" in r.text
     assert client.post("/api/security/blocks", headers=admin, json={"cidr": "79.208.166.0/24", "hours": 1}).status_code == 422
+
+
+def test_cookie_samesite_for_embedding(client, monkeypatch):
+    from app.config import settings as cfg
+    monkeypatch.setattr(cfg, "cookie_samesite", "none")
+    client.cookies.clear()
+    r = client.post("/api/auth/login", json={"email": "admin@example.de", "password": "geheim1234"},
+                    headers={"X-Forwarded-Proto": "https"})
+    sc = r.headers["set-cookie"].lower()
+    assert "samesite=none" in sc and "secure" in sc
+    r = client.post("/api/auth/login", json={"email": "admin@example.de", "password": "geheim1234"})  # ohne HTTPS
+    assert "samesite=lax" in r.headers["set-cookie"].lower()
+    client.cookies.clear()

@@ -62,7 +62,8 @@ class Settings(BaseSettings):
     weekly_report: bool = True
     weekly_report_day: int = 0  # 0 = Montag
     weekly_report_hour: int = 8  # Ortszeit
-    two_factor_required: bool = False  # alle Konten müssen die Zwei-Faktor-Anmeldung einrichten
+    two_factor_required: bool = False
+    cookie_samesite: str = "strict"  # strict | lax | none (none nur für Einbettung unter fremder Domain, braucht HTTPS)  # alle Konten müssen die Zwei-Faktor-Anmeldung einrichten
     exposure_enabled: bool = True  # Selbsttest: sind .env, .git usw. auf den eigenen Seiten lesbar?
     exposure_interval_h: int = 24  # Städtedatenbank für die Karte (rund 130 MB)
 

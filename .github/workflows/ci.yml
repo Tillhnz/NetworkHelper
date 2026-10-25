@@ -94,6 +94,15 @@ jobs:
           for i in $(seq 1 60); do curl -fsS http://localhost:8080/api/health && break; sleep 2; done
           curl -fsS http://localhost:8080/ | grep -q NetworkHelper
           curl -fsS http://localhost:8080/api/agent/files/nh-agent.py | head -3
+          curl -fsSI http://localhost:8080/ | grep -qi "frame-ancestors 'none'"
+      - name: Einbetten erlauben (FRAME_ANCESTORS)
+        run: |
+          echo "FRAME_ANCESTORS=https://ha.example.de http://192.168.1.20:8123" >> .env
+          docker compose up -d frontend
+          for i in $(seq 1 30); do curl -fsS http://localhost:8080/ >/dev/null && break; sleep 1; done
+          curl -fsSI http://localhost:8080/ | tee /tmp/h.txt
+          grep -qi "frame-ancestors 'self' https://ha.example.de http://192.168.1.20:8123" /tmp/h.txt
+          ! grep -qi "x-frame-options" /tmp/h.txt
       - name: Protokolle bei Fehler
         if: failure()
         run: docker compose logs --tail 80
