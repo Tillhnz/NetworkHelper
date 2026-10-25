@@ -8,6 +8,6 @@ RUN npm run build
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY security-headers.conf /etc/nginx/snippets/security-headers.conf
-COPY --chmod=755 40-frame-ancestors.sh /docker-entrypoint.d/40-frame-ancestors.sh
+COPY page-headers.conf /etc/nginx/snippets/page-headers.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

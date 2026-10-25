@@ -95,14 +95,20 @@ jobs:
           curl -fsS http://localhost:8080/ | grep -q NetworkHelper
           curl -fsS http://localhost:8080/api/agent/files/nh-agent.py | head -3
           curl -fsSI http://localhost:8080/ | grep -qi "frame-ancestors 'none'"
-      - name: Einbetten erlauben (FRAME_ANCESTORS)
+      - name: Einbetten erlauben (Administration → Zugang)
         run: |
-          echo "FRAME_ANCESTORS=https://ha.example.de http://192.168.1.20:8123" >> .env
-          docker compose up -d frontend
-          for i in $(seq 1 30); do curl -fsS http://localhost:8080/ >/dev/null && break; sleep 1; done
+          curl -fsSI http://localhost:8080/ | grep -i "x-frame-options: DENY"
+          TOKEN=$(curl -fsS -X POST http://localhost:8080/api/auth/register -H 'content-type: application/json' \
+            -d '{"email":"ci@example.de","password":"ci-geheim-123"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+          curl -fsS -X PUT http://localhost:8080/api/admin/settings -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+            -d '{"values":{"frame_ancestors":"https://ha.example.de/lovelace http://192.168.1.20:8123"}}' > /dev/null
           curl -fsSI http://localhost:8080/ | tee /tmp/h.txt
           grep -qi "frame-ancestors 'self' https://ha.example.de http://192.168.1.20:8123" /tmp/h.txt
           ! grep -qi "x-frame-options" /tmp/h.txt
+          curl -fsSI http://localhost:8080/assets/ 2>/dev/null | grep -qi "frame-ancestors 'none'" || true
+          docker compose stop backend
+          curl -fsS http://localhost:8080/ | grep -q NetworkHelper   # Seite kommt auch ohne Backend
+          curl -fsSI http://localhost:8080/ | grep -i "x-frame-options: DENY"
       - name: Protokolle bei Fehler
         if: failure()
         run: docker compose logs --tail 80

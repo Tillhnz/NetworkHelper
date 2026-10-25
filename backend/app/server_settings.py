@@ -20,6 +20,8 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "allow_registration": ("bool", "access", False),
     "token_expire_days": ("int:1:90", "access", False),
     "trusted_proxies": ("int:0:5", "access", False),
+    "frame_ancestors": ("origins", "access", False),
+    "cookie_samesite": ("choice:strict|lax|none", "access", False),
     "public_url": ("url", "general", False),
     "timezone": ("tz", "general", False),
     "router_type": ("choice:fritzbox|other", "general", False),
@@ -94,6 +96,26 @@ def parse_ports(text: str) -> list[int]:
     return sorted(out)
 
 
+ORIGIN_RE = re.compile(r"^(https?)://(\*\.)?[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{1,5})?$")
+
+
+def normalize_origins(text: str) -> str:
+    """Adressen, die NetworkHelper einbetten dürfen (z. B. Home Assistant). Nur Schema, Name und Port, ohne Pfad."""
+    out = []
+    for item in _split(text):
+        item = item.strip().lower().rstrip("/")
+        m = re.match(r"^(https?://[^/]+)(/.*)?$", item)
+        if m:
+            item = m.group(1)  # Pfad weglassen, CSP prüft nur die Herkunft
+        if not ORIGIN_RE.match(item):
+            raise SettingError(f"„{item}“ ist keine Adresse wie https://ha.example.de oder http://192.168.1.20:8123")
+        if item not in out:
+            out.append(item)
+    if len(out) > 10:
+        raise SettingError("Höchstens 10 Adressen")
+    return " ".join(out)
+
+
 def coerce(key: str, raw):
     """Prüft einen Wert und gibt ihn im richtigen Typ zurück."""
     kind = FIELDS[key][0]
@@ -149,6 +171,8 @@ def coerce(key: str, raw):
         except ValueError:
             raise SettingError("Eine IPv4-Adresse erwartet")
         return str(ip)
+    if base == "origins":
+        return normalize_origins(text)
     if base == "ports":
         parse_ports(text)
         return ", ".join(_split(text))

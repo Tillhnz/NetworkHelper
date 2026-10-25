@@ -29,6 +29,8 @@ services:
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-0}
       TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      # Startwerte für das Einbetten (z. B. in Home Assistant); einfacher unter Administration → Zugang
+      FRAME_ANCESTORS: ${FRAME_ANCESTORS:-}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-strict}
       UPDATER_URL: ${UPDATER_URL:-http://updater:9000}
       # Startwerte; alles Weitere (Porkbun, Proxy Manager, E-Mail, Scans) stellst du unter Administration ein
@@ -62,8 +64,6 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
-    environment:
-      FRAME_ANCESTORS: ${FRAME_ANCESTORS:-}
     ports:
       - "${WEB_PORT:-8080}:80"
 

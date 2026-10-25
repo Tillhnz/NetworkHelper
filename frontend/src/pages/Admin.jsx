@@ -331,6 +331,12 @@ const ACCESS = [
   { key: "token_expire_days", type: "number", label: "Anmeldung gilt (Tage)", min: 1, max: 90 },
   { key: "trusted_proxies", type: "number", label: "Proxys vor NetworkHelper", min: 0, max: 5, hint: "1, wenn NetworkHelper über den Nginx Proxy Manager erreichbar ist, sonst 0." },
 ];
+const EMBED = [
+  { key: "frame_ancestors", type: "text", wide: true, label: "Diese Seiten dürfen NetworkHelper einbetten", placeholder: "https://ha.example.de http://192.168.1.20:8123",
+    hint: "Zum Beispiel Home Assistant (Webseiten-Karte oder Seitenleiste). Trage jede Adresse ein, unter der du die Seite öffnest, mit Leerzeichen getrennt. Leer: Einbetten ist verboten (Schutz vor Klick-Tricks fremder Seiten)." },
+  { key: "cookie_samesite", type: "select", label: "Anmeldung im eingebetteten Fenster", options: [["strict", "Nur gleiche Domain (am sichersten)"], ["lax", "Gleiche Domain, Links von außen erlaubt"], ["none", "Auch fremde Domains (z. B. HA per IP-Adresse)"]],
+    hint: "Liegen Home Assistant und NetworkHelper unter derselben Domain (ha.example.de und network.example.de), reicht die erste Stufe. Öffnest du Home Assistant per IP-Adresse oder über Nabu Casa, wähle die letzte; das funktioniert nur, wenn NetworkHelper über https erreichbar ist. Gilt ab der nächsten Anmeldung." },
+];
 const GENERAL = [
   { key: "public_url", type: "text", label: "Adresse von NetworkHelper", wide: true, placeholder: "https://network.example.de", hint: "Für Links in Mails und als Vorschlag im Installationsbefehl der Agenten." },
   { key: "timezone", type: "text", label: "Zeitzone", placeholder: "Europe/Berlin" },
@@ -429,7 +435,7 @@ export default function Admin({ user }) {
       {needsDefs && !defs && <Loading />}
       {needsDefs && defs && (
         <>
-          {tab === "general" && <>{block({ title: "Adresse und Daten", spec: GENERAL })}{block({ title: "Zugang", spec: ACCESS })}</>}
+          {tab === "general" && <>{block({ title: "Adresse und Daten", spec: GENERAL })}{block({ title: "Zugang", spec: ACCESS })}{block({ title: "In andere Seiten einbetten", intro: <>So zeigst du NetworkHelper zum Beispiel in Home Assistant an: Dort eine <strong>Webseiten-Karte</strong> oder unter Einstellungen → Dashboards einen <strong>Webseiten-Eintrag</strong> mit der Adresse <code>{window.location.origin}</code> anlegen und die Adresse von Home Assistant hier eintragen. Die Änderung wirkt sofort.</>, spec: EMBED })}</>}
           {tab === "email" && block({
             title: "E-Mail-Warnungen",
             intro: data.smtp_ready ? "E-Mail ist eingerichtet. Warnungen gehen an alle Administratoren, die sie unter Einstellungen nicht abbestellt haben." : "Noch nicht eingerichtet: Warnungen erscheinen nur im Dashboard.",

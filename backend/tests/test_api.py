@@ -719,3 +719,16 @@ def test_cookie_samesite_for_embedding(client, monkeypatch):
     r = client.post("/api/auth/login", json={"email": "admin@example.de", "password": "geheim1234"})  # ohne HTTPS
     assert "samesite=lax" in r.headers["set-cookie"].lower()
     client.cookies.clear()
+
+
+def test_frame_policy_from_settings(client, admin):
+    assert "x-nh-frame-ancestors" not in client.get("/api/frame-policy").headers
+    r = client.put("/api/admin/settings", headers=admin, json={"values": {"frame_ancestors": "https://HA.example.de/lovelace/0, http://192.168.1.20:8123"}})
+    assert r.status_code == 200, r.text
+    h = client.get("/api/frame-policy")
+    assert h.status_code == 204 and h.headers["x-nh-frame-ancestors"] == "'self' https://ha.example.de http://192.168.1.20:8123"
+    bad = client.put("/api/admin/settings", headers=admin, json={"values": {"frame_ancestors": "https://x.de; script-src *"}})
+    assert bad.status_code == 422
+    assert client.put("/api/admin/settings", headers=admin, json={"values": {"cookie_samesite": "egal"}}).status_code == 422
+    client.put("/api/admin/settings", headers=admin, json={"values": {"frame_ancestors": ""}})
+    assert "x-nh-frame-ancestors" not in client.get("/api/frame-policy").headers
