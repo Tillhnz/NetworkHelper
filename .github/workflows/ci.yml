@@ -56,6 +56,15 @@ jobs:
           DATABASE_URL: postgresql+psycopg://networkhelper:ci@localhost:5432/networkhelper
         run: python -m pytest -q
 
+  fail2ban:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Filter und Jail-Konfiguration des Agenten mit echtem fail2ban prüfen
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq fail2ban
+          sudo python3 tools/fail2ban_selftest.py
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

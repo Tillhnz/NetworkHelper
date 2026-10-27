@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     geoip_city: bool = True
     github_token: str = ""  # optional: mehr Abfragen bei GitHub (Versionsprüfung), Rechte: keine nötig
     app_check_enabled: bool = True
+    fail2ban_share: bool = True  # was fail2ban auf einem Server sperrt, sperrt NetworkHelper überall (24 Std.)
     feed_spamhaus: bool = False  # Spamhaus DROP sperren (über den Agenten)
     feed_firehol: bool = False  # FireHOL Level 1 sperren
     weekly_report: bool = True

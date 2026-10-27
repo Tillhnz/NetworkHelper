@@ -98,6 +98,10 @@ export const GLOSSARY = {
     title: "Programm (User-Agent)",
     text: "Womit jemand zugreift, zum Beispiel ein Browser, die Nextcloud-App oder ein Skript. Angriffswerkzeuge verraten sich hier oft selbst.",
   },
+  fail2ban: {
+    title: "fail2ban",
+    text: "Ein bewährtes Programm, das auf einem Server die Protokolle liest und Angreifer nach einigen Fehlversuchen direkt in der Firewall sperrt, zum Beispiel bei falschen SSH- oder Proxmox-Passwörtern oder beim Passwort-Raten an deinen Webseiten. Das geht innerhalb von Sekunden und funktioniert auch, wenn NetworkHelper gerade nicht läuft. Dein Heimnetz und deine eigene öffentliche IP werden nie gesperrt. NetworkHelper zeigt alle Sperren an einem Ort und kann sie mit einem Klick überall aufheben.",
+  },
   domain_guard: {
     title: "Domain-Schutz",
     text: "Im DNS deiner Domain kannst du festlegen, wer in ihrem Namen E-Mails verschicken darf (SPF), was Empfänger mit Fälschungen tun sollen (DMARC) und welche Stelle Zertifikate ausstellen darf (CAA). Fehlen diese Einträge, können Betrüger Mails mit deiner Domain als Absender verschicken. Für Domains ohne Postfach setzt NetworkHelper die strengen Werte per Klick bei Porkbun.",

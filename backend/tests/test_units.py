@@ -214,3 +214,42 @@ def test_weak_user_agents_are_not_attacks():
     assert BAD_UA_RE.search("sqlmap/1.7") and not BAD_UA_RE.search("Go-http-client/1.1")
     assert WEAK_UA_RE.search("Go-http-client/1.1") and WEAK_UA_RE.search("Mozilla/5.0 zgrab/0.x")
     assert not BAD_UA_RE.search("Mozilla/5.0 (compatible; CensysInspect/1.1)") and not WEAK_UA_RE.search("CensysInspect/1.1")
+
+
+def _agent_module():
+    import importlib.util
+    import os
+    spec = importlib.util.spec_from_file_location("nh_agent", os.path.join(os.path.dirname(__file__), "..", "..", "agent", "nh-agent.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_agent_fail2ban_parse_and_config():
+    a = _agent_module()
+    out = ("Status for the jail: sshd\n|- Filter\n|  |- Currently failed:\t2\n|  |- Total failed:\t17\n"
+           "|  `- Journal matches:\t_SYSTEMD_UNIT=sshd.service + _COMM=sshd\n`- Actions\n   |- Currently banned:\t2\n"
+           "   |- Total banned:\t5\n   `- Banned IP list:\t45.9.9.1 2001:db8::7 bogus;rm")
+    j = a.f2b_parse_jail(out)
+    assert j == {"failed": 2, "total_failed": 17, "banned": 2, "total_banned": 5, "ips": ["45.9.9.1", "2001:db8::7"]}
+    det = dict(sshd=True, journal=True, npm_logs="/data/logs", npm_docker=True, proxmox=True, nft=True)
+    conf = a.f2b_jail_config(det, ["79.208.166.153", "x; rm -rf"])
+    assert "79.208.166.153" in conf and "rm -rf" not in conf and "192.168.0.0/16" in conf
+    assert "chain=DOCKER-USER" in conf and "[networkhelper-proxmox]" in conf and "backend = systemd" in conf
+    assert "[networkhelper]" in conf and "bantime = -1" in conf
+
+
+def test_agent_fail2ban_sync():
+    a = _agent_module()
+    calls = []
+    a.f2b_client = lambda *args, **kw: (calls.append(args), (0, ""))[1]
+    sync = a.Fail2banSync({})
+    status = {"running": True, "jails": [{"name": "networkhelper", "ips": ["1.1.1.1", "2.2.2.2"]}, {"name": "sshd", "ips": ["79.208.166.153"]}]}
+    sync.apply(status, ["2.2.2.2", "3.3.3.3", "10.0.0.0/8", "79.208.166.153"], ["79.208.166.153"],
+               [{"jail": "sshd", "ip": "9.9.9.9"}, {"jail": "gibts; nicht", "ip": "1.2.3.4"}])
+    assert ("set", "networkhelper", "banip", "3.3.3.3") in calls
+    assert ("set", "networkhelper", "unbanip", "1.1.1.1") in calls
+    assert ("set", "sshd", "unbanip", "9.9.9.9") in calls
+    assert ("set", "sshd", "unbanip", "79.208.166.153") in calls  # eigene IP sofort frei
+    assert not any("10.0.0.0/8" in c for c in calls) and not any("gibts; nicht" in c for c in calls)
+    assert not any(c[:3] == ("set", "networkhelper", "banip") and c[3] == "79.208.166.153" for c in calls)

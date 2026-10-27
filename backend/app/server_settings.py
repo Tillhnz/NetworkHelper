@@ -59,6 +59,7 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "exposure_enabled": ("bool", "security", False),
     "two_factor_required": ("bool", "security", False),
     "app_check_enabled": ("bool", "security", False),
+    "fail2ban_share": ("bool", "security", False),
     "feed_spamhaus": ("bool", "security", False),
     "feed_firehol": ("bool", "security", False),
     "weekly_report": ("bool", "email", False),

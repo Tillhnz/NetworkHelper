@@ -6,6 +6,7 @@ import { CopyLine, Country, Dot, EmptyState, Pill, usePoll } from "../components
 import { IpDetail } from "./Access.jsx";
 import { GROUP_COLORS } from "../components/WorldMap.jsx";
 import HostWatch from "../components/HostWatch.jsx";
+import { Fail2banAgent } from "../components/Fail2ban.jsx";
 import { InfoTip, PageIntro, Term } from "../components/help.jsx";
 
 function installCommand(server, token, enforce) {
@@ -149,6 +150,7 @@ function AgentCard({ a, isAdmin, onChanged, onIp }) {
         </div>
       )}
       {a.last_seen && <HostWatch agent={a} isAdmin={isAdmin} refreshKey={a.last_seen} />}
+      {a.last_seen && <Fail2banAgent agent={a} />}
       {!a.last_seen && <p className="muted">Noch keine Verbindung. Führe den Installationsbefehl auf dem Server aus.</p>}
     </section>
   );

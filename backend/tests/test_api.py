@@ -732,3 +732,40 @@ def test_frame_policy_from_settings(client, admin):
     assert client.put("/api/admin/settings", headers=admin, json={"values": {"cookie_samesite": "egal"}}).status_code == 422
     client.put("/api/admin/settings", headers=admin, json={"values": {"frame_ancestors": ""}})
     assert "x-nh-frame-ancestors" not in client.get("/api/frame-policy").headers
+
+
+def test_fail2ban_reports_share_and_unban(client, admin):
+    from app import state
+    from app.models import BlockEntry
+    with SessionLocal() as db:
+        state.put(db, "public_ip", {"ip": "79.208.166.210", "source": "test", "since": datetime.utcnow().isoformat()})
+    r = client.post("/api/agents", headers=admin, json={"name": "PVE-F2B"})
+    ah, aid = {"Authorization": f"Bearer {r.json()['token']}"}, r.json()["id"]
+    assert "79.208.166.210" in client.get("/api/agent/own-ips", headers=ah).json()["own_ips"]
+    f2b = {"installed": True, "running": True, "managed": True, "version": "1.0.2", "jails": [
+        {"name": "sshd", "failed": 1, "total_failed": 30, "banned": 2, "total_banned": 4, "ips": ["45.9.9.21", "79.208.166.210"]},
+        {"name": "networkhelper", "banned": 1, "ips": ["45.9.9.22"]},
+        {"name": "böse; rm", "ips": ["1.1.1.1"]}]}
+    res = client.post("/api/agent/state", headers=ah, json={"hostname": "pve", "version": "1.2.0", "info": {}, "established": [],
+                                                              "listening": [], "fail2ban": f2b}).json()
+    assert "79.208.166.210" in res["own_ips"] and res["f2b_unban"] == []
+    with SessionLocal() as db:
+        shared = db.query(BlockEntry).filter(BlockEntry.cidr == "45.9.9.21").one()
+        assert shared.auto and "SSH" in shared.reason and shared.expires_at is not None
+        assert db.query(BlockEntry).filter(BlockEntry.cidr.in_(["79.208.166.210", "45.9.9.22"])).count() == 0
+    ov = client.get("/api/security/fail2ban", headers=admin).json()
+    agent = next(a for a in ov["agents"] if a["id"] == aid)
+    assert [j["name"] for j in agent["jails"]] == ["sshd", "networkhelper"] and agent["jails"][0]["label"] == "SSH-Anmeldung"
+    conn = next(a for a in client.get("/api/connections", headers=admin).json() if a["id"] == aid)
+    assert conn["fail2ban"]["installed"] and conn["fail2ban"]["banned"] == 3
+    reasons = client.get("/api/overview", headers=admin).json()["security"]["reasons"]
+    assert any("PVE-F2B" in r["text"] and "fail2ban" in r["text"] for r in reasons)
+    # Überall entsperren
+    u = client.post("/api/security/fail2ban/unban", headers=admin, json={"ip": "45.9.9.21"}).json()
+    assert u == {"ip": "45.9.9.21", "jails": 1, "blocks_removed": 1}
+    res = client.post("/api/agent/state", headers=ah, json={"hostname": "pve", "version": "1.2.0", "info": {}, "established": [],
+                                                              "listening": [], "fail2ban": f2b}).json()
+    assert res["f2b_unban"] == [{"jail": "sshd", "ip": "45.9.9.21"}]
+    with SessionLocal() as db:  # bereits bekannte Sperre wird nicht erneut übernommen
+        assert db.query(BlockEntry).filter(BlockEntry.cidr == "45.9.9.21").count() == 0
+    assert client.post("/api/security/fail2ban/unban", headers=admin, json={"ip": "kein ip"}).status_code == 422

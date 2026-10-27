@@ -11,13 +11,15 @@
 #   --no-enforce-blocks Sperrliste nicht umsetzen
 #   --logs "GLOB,GLOB"  Eigene Protokolldateien statt der automatisch gefundenen
 #   --insecure          Selbst signiertes Zertifikat von NetworkHelper akzeptieren
+#   --fail2ban          fail2ban installieren und einrichten (SSH, Proxy Manager, Proxmox; Heimnetz und eigene IP ausgenommen)
+#   --no-fail2ban       Die NetworkHelper-Regeln aus fail2ban wieder entfernen
 #   --uninstall         Agent entfernen
 set -euo pipefail
 
 DIR=/opt/networkhelper-agent
 CONF=/etc/networkhelper-agent.json
 UNIT=/etc/systemd/system/networkhelper-agent.service
-SERVER="" TOKEN="" ENFORCE="" LOGS="" INSECURE="" UNINSTALL=""
+SERVER="" TOKEN="" ENFORCE="" LOGS="" INSECURE="" UNINSTALL="" FAIL2BAN=""
 
 info() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✔\033[0m %s\n' "$*"; }
@@ -32,6 +34,8 @@ while [ $# -gt 0 ]; do
     --no-enforce-blocks) ENFORCE=false; shift ;;
     --logs) LOGS="$2"; shift 2 ;;
     --insecure) INSECURE=true; shift ;;
+    --fail2ban) FAIL2BAN=true; shift ;;
+    --no-fail2ban) FAIL2BAN=false; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
     *) die "Unbekannte Option: $1" ;;
   esac
@@ -41,6 +45,7 @@ done
 command -v systemctl >/dev/null 2>&1 || die "systemd fehlt. Der Agent braucht einen Server mit systemd."
 
 if [ -n "$UNINSTALL" ]; then
+  [ -f "$DIR/nh-agent.py" ] && python3 "$DIR/nh-agent.py" --remove-fail2ban >/dev/null 2>&1 || true
   systemctl disable --now networkhelper-agent 2>/dev/null || true
   rm -f "$UNIT" "$CONF"
   rm -rf "$DIR" /var/lib/networkhelper-agent
@@ -164,6 +169,14 @@ if systemctl is-active --quiet networkhelper-agent; then
 else
   warn "Der Agent startet nicht. Details: journalctl -u networkhelper-agent -n 50"
 fi
+if [ "$FAIL2BAN" = true ]; then
+  info "Richte fail2ban ein …"
+  python3 "$DIR/nh-agent.py" --setup-fail2ban || warn "fail2ban ließ sich nicht vollständig einrichten (Details oben)."
+elif [ "$FAIL2BAN" = false ]; then
+  python3 "$DIR/nh-agent.py" --remove-fail2ban || true
+fi
+
 echo
 echo "Sperrliste im Proxy Manager: $([ "$ENFORCE" = true ] && echo an || echo aus)  (ändern: Befehl erneut mit --enforce-blocks oder --no-enforce-blocks)"
+echo "fail2ban:                    $(command -v fail2ban-client >/dev/null 2>&1 && echo installiert || echo nicht installiert)  (einrichten: Befehl erneut mit --fail2ban)"
 echo "Protokoll des Agenten:       journalctl -u networkhelper-agent -f"

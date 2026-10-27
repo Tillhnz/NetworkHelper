@@ -394,6 +394,7 @@ const SECURITY = [
   { key: "scan_targets", type: "text", label: "Weitere Ziele", wide: true, placeholder: "z. B. vps.example.de", hint: "Die eigene öffentliche IP ist immer dabei." },
   { key: "shodan_enabled", type: "bool", label: "Shodan InternetDB fragen (sendet nur die öffentliche IP)" },
   { key: "site_check_interval_h", type: "number", label: "Zertifikate prüfen alle (Stunden)", min: 1, max: 168 },
+  { key: "fail2ban_share", type: "bool", label: "Sperren von fail2ban überall übernehmen", hint: "Sperrt fail2ban auf einem Server einen Angreifer, sperrt NetworkHelper ihn für 24 Stunden auch im Proxy Manager und auf allen anderen Servern." },
   { key: "app_check_enabled", type: "bool", label: "Apps auf Updates und bekannte Sicherheitslücken prüfen", hint: "Liest die Versionen deiner Apps ab und fragt zweimal am Tag bei GitHub nach neuen Versionen und Sicherheitswarnungen." },
   { key: "github_token", type: "text", secret: true, label: "GitHub-Token (optional)", hint: "Nur nötig bei sehr vielen Apps: Ohne Token erlaubt GitHub 60 Abfragen pro Stunde. Ein Token ohne besondere Rechte reicht." },
   { key: "two_factor_required", type: "bool", label: "Zwei-Faktor-Anmeldung für alle Konten vorschreiben", hint: "Wer sie noch nicht hat, muss sie bei der nächsten Anmeldung einrichten, bevor es weitergeht. Geht erst, wenn dein eigenes Konto sie hat." },

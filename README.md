@@ -103,6 +103,27 @@ curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | bash -s -- --u
 
 Den Agenten kannst du auch auf weiteren Servern installieren, am besten auch direkt auf dem **Proxmox-Host**: Ohne Proxy Manager meldet er Verbindungen, Ports und alles aus der Wachsamkeit (Anmeldungen an SSH und an der Proxmox-Oberfläche, Konten, wichtige Dateien).
 
+## fail2ban
+
+fail2ban sperrt Angreifer direkt in der Firewall eines Servers, innerhalb von Sekunden und auch, wenn NetworkHelper gerade nicht läuft. Der Agent richtet es auf Wunsch ein:
+
+```bash
+curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | bash -s -- --fail2ban      # einrichten
+curl -fsSL http://NETWORKHELPER:8080/api/agent/files/install.sh | bash -s -- --no-fail2ban   # NetworkHelper-Regeln entfernen
+```
+
+Je nach Server entstehen diese Jails (`/etc/fail2ban/jail.d/networkhelper.local`):
+
+| Jail | schützt | sperrt nach |
+|---|---|---|
+| `sshd` | SSH-Anmeldung | 5 Fehlversuchen in 10 Min. (1 Std., Wiederholungstäter länger) |
+| `networkhelper-npm-auth` | Anmeldungen an deinen Webseiten (401/403 im Proxy Manager) | 15 in 5 Min. |
+| `networkhelper-npm-scan` | Schwachstellen-Suche (/.env, /.git, wp-login.php …), nur wenn sie ins Leere ging | 3 in 1 Std. (1 Tag) |
+| `networkhelper-proxmox` | Proxmox-Oberfläche (falsches Passwort) | 3 in 10 Min. |
+| `networkhelper` | Sperrliste von NetworkHelper, vom Agenten gepflegt | – |
+
+Heimnetz-Bereiche und deine öffentliche IP (auch nach einem Wechsel) stehen in `ignoreip`. Läuft der Proxy Manager in Docker, wird in der Kette `DOCKER-USER` gesperrt, sonst mit nftables bzw. iptables. NetworkHelper zeigt alle Sperren unter Sicherheit → Sperrliste, hebt sie per Klick überall auf und übernimmt neue Sperren auf Wunsch für 24 Stunden in seine Sperrliste (Administration → Sicherheit).
+
 ## Zwei-Faktor-Anmeldung
 
 Unter **Einstellungen → Zwei-Faktor-Anmeldung** verbindest du dein Konto mit einer Authenticator-App (Google Authenticator, Microsoft Authenticator, 2FAS, Aegis, Bitwarden …). Danach fragt die Anmeldung nach Passwort **und** dem 6-stelligen Code aus der App. Bei der Einrichtung bekommst du 10 Wiederherstellungscodes für den Notfall (je einmal gültig). Administratoren können unter Administration → Sicherheit die Zwei-Faktor-Anmeldung für alle Konten vorschreiben und unter Konten die 2FA eines Nutzers zurücksetzen.

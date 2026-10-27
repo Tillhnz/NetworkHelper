@@ -51,6 +51,10 @@ def security_status(db: Session) -> dict:
     if crit:
         reasons.append({"points": 10, "level": "crit", "area": "incidents", "text": f"{crit} offene kritische Vorfälle (Anmeldeversuche)"})
     from ..models import Exposure, User, WatchEvent
+    from .. import fail2ban
+    for where, n in fail2ban.ssh_exposed(db):
+        reasons.append({"points": 5, "level": "warn", "area": "host",
+                        "text": f"{where}: aus dem Internet erreichbar, fail2ban sperrt gerade {n} Angreifer. Besser nur per VPN öffnen"})
     hw = db.execute(select(Agent.name, WatchEvent.severity, func.count()).join(Agent, Agent.id == WatchEvent.agent_id)
                     .where(WatchEvent.acknowledged.is_(False), WatchEvent.severity.in_(["warn", "crit"]))
                     .group_by(Agent.name, WatchEvent.severity)).all()

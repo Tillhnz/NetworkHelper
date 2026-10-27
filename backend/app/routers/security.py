@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .. import appversions, audit, detect, exposure, geoblock, portscan, scheduler, state
+from .. import appversions, audit, detect, exposure, fail2ban, geoblock, portscan, scheduler, state
 from ..database import get_db
 from ..models import Agent, ExpectedPort, Exposure, GeoRule, Incident, PortFinding, SiteCheck, User
 from ..security import current_user, require_admin
@@ -375,3 +375,24 @@ def geo_preview(data: PreviewIn, user: User = Depends(current_user), db: Session
 @router.post("/geo/feeds/refresh", status_code=202)
 def geo_feeds_refresh(admin: User = Depends(require_admin)):
     return {"started": scheduler.trigger("feeds")}
+
+
+# ---------- fail2ban ----------
+
+@router.get("/fail2ban")
+def fail2ban_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return fail2ban.overview(db)
+
+
+class UnbanIn(BaseModel):
+    ip: str = Field(min_length=2, max_length=45)
+
+
+@router.post("/fail2ban/unban")
+def fail2ban_unban(data: UnbanIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    try:
+        res = fail2ban.request_unban(db, data.ip)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    audit.record(db, admin.email, "fail2ban.unban", res["ip"])
+    return res

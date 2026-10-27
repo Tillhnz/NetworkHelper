@@ -9,7 +9,9 @@ Läuft als systemd-Dienst auf einem Server (zum Beispiel dem LXC mit dem Nginx P
 - passt auf den Server selbst auf: erfolgreiche und fehlgeschlagene SSH-Anmeldungen, Benutzerkonten mit Login,
   Prüfsummen wichtiger Systemdateien (authorized_keys, sudoers, cron, systemd …). Inhalte verlassen den Server nicht,
   nur Prüfsummen und Namen,
-- aktualisiert sich selbst, wenn NetworkHelper eine neuere Version anbietet.
+- aktualisiert sich selbst, wenn NetworkHelper eine neuere Version anbietet,
+- richtet auf Wunsch fail2ban ein (--setup-fail2ban), meldet dessen Sperren und setzt die Sperrliste von
+  NetworkHelper zusätzlich in der Firewall um.
 
 Nur Python-Standardbibliothek, läuft ab Python 3.7. Konfiguration: /etc/networkhelper-agent.json
 """
@@ -28,7 +30,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 CONFIG = os.environ.get("NH_AGENT_CONFIG", "/etc/networkhelper-agent.json")
 STATE_DIR = os.environ.get("NH_AGENT_STATE", "/var/lib/networkhelper-agent")
 DEFAULTS = {
@@ -438,6 +440,215 @@ def self_update(api, cfg, offered):
         log("Selbst-Update fehlgeschlagen: %s" % e)
 
 
+# ---------- fail2ban ----------
+
+F2B_DIR = os.environ.get("NH_F2B_DIR", "/etc/fail2ban")
+F2B_JAIL_FILE = "jail.d/networkhelper.local"
+F2B_SYNC_JAIL = "networkhelper"
+F2B_MANUAL_LOG = "/var/log/networkhelper-fail2ban.log"
+F2B_LAN = "127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 fc00::/7 fe80::/10"
+F2B_IP_RE = re.compile(r"^[0-9a-fA-F:.]{3,45}$")
+F2B_JAIL_RE = re.compile(r"^[A-Za-z0-9_.-]{1,60}$")
+
+# Proxy Manager: Zeilenanfang „[Zeit] … Status …“ und „[Client IP]“ (Formate der Version 2.x)
+F2B_NPM_PREFIX = r'^ ?(?:- )?(?:\d{3} )?'  # der Zeitstempel ist hier schon abgeschnitten
+F2B_FILTERS = {
+    "networkhelper-npm-auth": {
+        "about": "Viele abgelehnte Anmeldungen (401/403) an deinen Webseiten",
+        "body": "[Definition]\n"
+                "failregex = " + F2B_NPM_PREFIX + r'(?:401|403) (?:\S+ )?- ?\S+ \S+ \S+ "[^"]*" \[Client <HOST>\]' + "\n"
+                "ignoreregex =\n"
+                "datepattern = ^\\[%%d/%%b/%%Y:%%H:%%M:%%S %%z\\]\n",
+    },
+    "networkhelper-npm-scan": {
+        "about": "Suche nach Schwachstellen (/.env, /.git, wp-login.php …), die ins Leere ging",
+        "body": "[Definition]\n"
+                "failregex = " + F2B_NPM_PREFIX + r'4\d\d (?:\S+ )?- ?\S+ \S+ \S+ "[^"]*?(?:/\.env|/\.git/|/\.aws/|/\.ssh/|wp-login\.php|xmlrpc\.php|/phpmyadmin|/vendor/phpunit|eval-stdin\.php|/cgi-bin/|/boaform|/HNAP1|/actuator|/\.DS_Store|/server-status)[^"]*" \[Client <HOST>\]' + "\n"
+                "ignoreregex =\n"
+                "datepattern = ^\\[%%d/%%b/%%Y:%%H:%%M:%%S %%z\\]\n",
+    },
+    "networkhelper-proxmox": {
+        "about": "Falsche Passwörter an der Proxmox-Oberfläche",
+        "body": "[Definition]\n"
+                "failregex = authentication (?:verification )?failure; rhost=(?:::ffff:)?<HOST> user=\\S+ msg=.*$\n"
+                "ignoreregex =\n"
+                "journalmatch = _SYSTEMD_UNIT=pvedaemon.service\n",
+    },
+    "networkhelper": {
+        "about": "Sperrliste von NetworkHelper (wird vom Agenten gepflegt)",
+        "body": "[Definition]\nfailregex =\nignoreregex =\n",
+    },
+}
+
+
+def f2b_detect(cfg):
+    """Was gibt es auf diesem Server zu schützen?"""
+    npm_dir = cfg.get("npm_data_dir") or ""
+    return {
+        "sshd": bool(shutil.which("sshd") or os.path.exists("/usr/sbin/sshd")),
+        "journal": bool(shutil.which("journalctl")),
+        "npm_logs": os.path.join(npm_dir, "logs") if npm_dir and os.path.isdir(os.path.join(npm_dir, "logs")) else "",
+        "npm_docker": bool(cfg.get("npm_container")),
+        "proxmox": os.path.isdir("/etc/pve"),
+        "nft": bool(shutil.which("nft")),
+    }
+
+
+def f2b_jail_config(det, own_ips=()):
+    """Inhalt von jail.d/networkhelper.local. Heimnetz und eigene IP werden nie gesperrt."""
+    ignore = F2B_LAN + "".join(" " + ip for ip in own_ips if F2B_IP_RE.match(ip))
+    if det["nft"]:
+        multi, allports = "nftables-multiport", "nftables-allports"
+    else:
+        multi, allports = "iptables-multiport", "iptables-allports"
+    # Läuft der Proxy Manager in Docker, gehen Besucher durch die FORWARD-Kette: dort (DOCKER-USER) sperren
+    npm_action = "iptables-allports[name=%(__name__)s, chain=DOCKER-USER]" if det["npm_docker"] else allports
+    out = ["# Von NetworkHelper verwaltet (nh-agent --setup-fail2ban). Eigene Anpassungen bitte in eine andere Datei.",
+           "# Das Heimnetz und deine öffentliche IP stehen in ignoreip und werden nie gesperrt.", ""]
+
+    def jail(name, lines):
+        out.extend(["[%s]" % name, "enabled = true", "ignoreip = " + ignore, "bantime.increment = true",
+                    "bantime.maxtime = 1w"] + lines + [""])
+
+    if det["sshd"]:
+        jail("sshd", ["mode = aggressive", "port = ssh", "maxretry = 5", "findtime = 10m", "bantime = 1h",
+                      "banaction = " + multi] + (["backend = systemd"] if det["journal"] else []))
+    if det["npm_logs"]:
+        logs = os.path.join(det["npm_logs"], "proxy-host-*_access.log")
+        jail("networkhelper-npm-auth", ["filter = networkhelper-npm-auth", "logpath = " + logs, "backend = auto",
+                                        "maxretry = 15", "findtime = 5m", "bantime = 1h", "action = " + npm_action])
+        jail("networkhelper-npm-scan", ["filter = networkhelper-npm-scan", "logpath = " + logs, "backend = auto",
+                                        "maxretry = 3", "findtime = 1h", "bantime = 1d", "action = " + npm_action])
+    if det["proxmox"] and det["journal"]:
+        jail("networkhelper-proxmox", ["filter = networkhelper-proxmox", "backend = systemd", "port = https,http,8006",
+                                       "maxretry = 3", "findtime = 10m", "bantime = 1h", "banaction = " + multi])
+    out.extend(["[%s]" % F2B_SYNC_JAIL, "# Keine eigene Erkennung: Der Agent sperrt hier, was NetworkHelper sperrt.",
+                "enabled = true", "ignoreip = " + ignore, "filter = networkhelper", "logpath = " + F2B_MANUAL_LOG, "backend = auto",
+                "maxretry = 1", "bantime = -1", "action = " + (npm_action if det["npm_logs"] else allports), ""])
+    return "\n".join(out)
+
+
+def f2b_client(*args, timeout=20):
+    p = subprocess.run(["fail2ban-client"] + list(args), capture_output=True, text=True, timeout=timeout)
+    return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+
+def f2b_parse_jail(text):
+    """Ausgabe von `fail2ban-client status <jail>` in Zahlen und Liste."""
+    def num(label):
+        m = re.search(label + r":\s*(\d+)", text)
+        return int(m.group(1)) if m else 0
+    m = re.search(r"Banned IP list:\s*(.*)", text)
+    ips = [x for x in (m.group(1).split() if m else []) if F2B_IP_RE.match(x)]
+    return {"failed": num("Currently failed"), "total_failed": num("Total failed"), "banned": num("Currently banned"),
+            "total_banned": num("Total banned"), "ips": ips[:500]}
+
+
+def f2b_status():
+    if not shutil.which("fail2ban-client"):
+        return {"installed": False}
+    out = {"installed": True, "managed": os.path.exists(os.path.join(F2B_DIR, F2B_JAIL_FILE)), "jails": []}
+    try:
+        code, text = f2b_client("ping", timeout=8)
+        out["running"] = code == 0 and "pong" in text
+        if not out["running"]:
+            out["error"] = text.strip()[-200:] or "fail2ban läuft nicht"
+            return out
+        code, text = f2b_client("version", timeout=8)
+        out["version"] = text.strip().splitlines()[-1][:20] if code == 0 and text.strip() else None
+        code, text = f2b_client("status")
+        m = re.search(r"Jail list:\s*(.*)", text)
+        names = [n.strip() for n in (m.group(1).split(",") if m else []) if n.strip()]
+        for name in names[:30]:
+            code, jt = f2b_client("status", name)
+            if code == 0:
+                out["jails"].append(dict(name=name, **f2b_parse_jail(jt)))
+    except (OSError, subprocess.SubprocessError) as e:
+        out["error"] = str(e)[:200]
+    return out
+
+
+class Fail2banSync:
+    """Hält die Sperren im Jail „networkhelper“ gleich der Sperrliste von NetworkHelper und führt Entsperr-Wünsche aus."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.own_ips = set()
+
+    def apply(self, status, blocklist, own_ips, unban):
+        if not status.get("running"):
+            return
+        jails = {j["name"]: j for j in status.get("jails", [])}
+        for req in unban or []:
+            jail, ip = str(req.get("jail", "")), str(req.get("ip", ""))
+            if jail in jails and F2B_JAIL_RE.match(jail) and F2B_IP_RE.match(ip):
+                f2b_client("set", jail, "unbanip", ip)
+                log("fail2ban: %s in %s entsperrt (Wunsch aus NetworkHelper)" % (ip, jail))
+        own = {ip for ip in own_ips or [] if F2B_IP_RE.match(ip)}
+        if own != self.own_ips:  # eigene IP nach einem Wechsel sofort ausnehmen
+            for name in jails:
+                for ip in own - self.own_ips:
+                    f2b_client("set", name, "addignoreip", ip)
+                    if ip in jails[name]["ips"]:
+                        f2b_client("set", name, "unbanip", ip)
+            self.own_ips = own
+        if F2B_SYNC_JAIL not in jails:
+            return
+        wanted = {e for e in blocklist or [] if "/" not in e and F2B_IP_RE.match(e)} - own
+        current = set(jails[F2B_SYNC_JAIL]["ips"])
+        for ip in sorted(wanted - current)[:500]:
+            f2b_client("set", F2B_SYNC_JAIL, "banip", ip)
+        for ip in sorted(current - wanted)[:500]:
+            f2b_client("set", F2B_SYNC_JAIL, "unbanip", ip)
+
+
+def setup_fail2ban(cfg, remove=False):
+    """Richtet fail2ban ein (oder entfernt die NetworkHelper-Teile). Läuft einmalig per install.sh --fail2ban."""
+    jail_path = os.path.join(F2B_DIR, F2B_JAIL_FILE)
+    filters = [os.path.join(F2B_DIR, "filter.d", n + ".conf") for n in F2B_FILTERS]
+    if remove:
+        for p in [jail_path] + filters:
+            if os.path.exists(p):
+                os.remove(p)
+        if shutil.which("fail2ban-client"):
+            f2b_client("reload", timeout=60)
+        print("NetworkHelper-Regeln aus fail2ban entfernt (fail2ban selbst bleibt installiert).")
+        return 0
+    if not shutil.which("fail2ban-client"):
+        if not shutil.which("apt-get"):
+            print("fail2ban fehlt und apt-get ist nicht vorhanden. Bitte fail2ban von Hand installieren.")
+            return 1
+        print("Installiere fail2ban …")
+        pkgs = ["fail2ban"] + ([] if shutil.which("nft") or shutil.which("iptables") else ["nftables"])
+        subprocess.run(["apt-get", "update", "-qq"], check=False)
+        if subprocess.run(["apt-get", "install", "-y", "-qq"] + pkgs, check=False).returncode != 0:
+            print("Installation fehlgeschlagen.")
+            return 1
+    det = f2b_detect(cfg)
+    os.makedirs(os.path.join(F2B_DIR, "filter.d"), exist_ok=True)
+    os.makedirs(os.path.join(F2B_DIR, "jail.d"), exist_ok=True)
+    for name, f in F2B_FILTERS.items():
+        with open(os.path.join(F2B_DIR, "filter.d", name + ".conf"), "w", encoding="utf-8") as fh:
+            fh.write("# Von NetworkHelper verwaltet: %s\n%s" % (f["about"], f["body"]))
+    if not os.path.exists(F2B_MANUAL_LOG):
+        open(F2B_MANUAL_LOG, "a").close()
+    with open(jail_path, "w", encoding="utf-8") as fh:
+        fh.write(f2b_jail_config(det, cfg.get("own_ips") or []))
+    subprocess.run(["systemctl", "enable", "--now", "fail2ban"], check=False, capture_output=True)
+    code, text = f2b_client("reload", timeout=60)
+    if code != 0:
+        subprocess.run(["systemctl", "restart", "fail2ban"], check=False)
+        time.sleep(3)
+        code, text = f2b_client("ping")
+    print("fail2ban eingerichtet: SSH %s, Webseiten %s, Proxmox %s." % (
+        "ja" if det["sshd"] else "nein (kein sshd)", "ja" if det["npm_logs"] else "nein (kein Proxy Manager)",
+        "ja" if det["proxmox"] else "nein"))
+    if code != 0:
+        print("Achtung: fail2ban meldet einen Fehler: " + text.strip()[-300:])
+        return 1
+    return 0
+
+
 # ---------- Sperrliste im Proxy Manager ----------
 
 class Blocker:
@@ -537,6 +748,7 @@ def main():
     tailer = Tailer(cfg.get("log_globs") or [], int(cfg.get("backfill_bytes") or 0))
     blocker = Blocker(cfg)
     auth = AuthWatcher()
+    f2b = Fail2banSync(cfg)
     next_watch = time.time() + 20
     interval = max(10, int(cfg.get("interval") or 30))
     log("NetworkHelper-Agent %s startet, Server %s, %d Protokolldateien" % (VERSION, cfg["server"], len(tailer.files())))
@@ -552,7 +764,9 @@ def main():
                 tailer.commit()
             if time.time() >= next_state:
                 est, listen = connections()
+                f2b_st = f2b_status()
                 res = api.post("/state", {
+                    "fail2ban": f2b_st,
                     "hostname": socket.gethostname(), "version": VERSION, "info": system_info(),
                     "established": est, "listening": listen, "log_files": tailer.describe(),
                     "enforce_blocks": bool(cfg.get("enforce_blocks")), "block_status": blocker.status[:300],
@@ -563,6 +777,10 @@ def main():
                 blocker.apply(res.get("blocklist", []), res.get("blocklist_hash"), http_conf, res.get("server_snippet") or "")
                 interval = max(10, int(res.get("interval") or interval))
                 next_state = time.time() + interval
+                try:
+                    f2b.apply(f2b_st, res.get("blocklist", []), res.get("own_ips", []), res.get("f2b_unban", []))
+                except (OSError, subprocess.SubprocessError) as e:
+                    log("fail2ban-Abgleich fehlgeschlagen: %s" % e)
                 self_update(api, cfg, res.get("agent_version"))
             if cfg.get("watch", True) and time.time() >= next_watch:
                 api.post("/watch", watch_snapshot(auth), timeout=60)
@@ -590,6 +808,13 @@ if __name__ == "__main__":
         print(json.dumps({"files": t.files(), "connections": connections()[0][:5], "info": system_info(),
                           "watch": {"users": login_users(), "files": len(file_hashes())}}, indent=2))
         sys.exit(0)
+    if len(sys.argv) > 1 and sys.argv[1] in ("--setup-fail2ban", "--remove-fail2ban"):
+        c = load_config()
+        try:  # eigene öffentliche IP gleich mit ausnehmen
+            c["own_ips"] = json.loads(Api(c).get_text(c["server"] + "/api/agent/own-ips", timeout=15)).get("own_ips", [])
+        except Exception:  # noqa: BLE001
+            c["own_ips"] = []
+        sys.exit(setup_fail2ban(c, remove=sys.argv[1] == "--remove-fail2ban"))
     if len(sys.argv) > 1 and sys.argv[1] == "--version":
         print(VERSION)
         sys.exit(0)

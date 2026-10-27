@@ -88,6 +88,7 @@ class Agent(Base):
     block_status: Mapped[str | None] = mapped_column(String(300), nullable=True)
     lines_total: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     parse_errors: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    fail2ban: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: Status und Sperren von fail2ban
 
 
 class GeoRule(Base):

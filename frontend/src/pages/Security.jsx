@@ -8,6 +8,7 @@ import { IpDetail } from "./Access.jsx";
 import Exposure from "./SecurityExposure.jsx";
 import Apps from "./SecurityApps.jsx";
 import Geo from "./SecurityGeo.jsx";
+import { Fail2banList } from "../components/Fail2ban.jsx";
 import { InfoTip, PageIntro, Term, useHelp } from "../components/help.jsx";
 import { GuideCard } from "../components/RouterGuide.jsx";
 import { CHECKLIST, GUIDES, guidesForPort, ROUTERS } from "../routerGuides.js";
@@ -372,7 +373,7 @@ export default function Security({ user }) {
       {tab === "exposure" && <Exposure isAdmin={isAdmin} />}
       {tab === "apps" && <Apps isAdmin={isAdmin} />}
       {tab === "geo" && <Geo isAdmin={isAdmin} />}
-      {tab === "blocks" && <Blocks isAdmin={isAdmin} />}
+      {tab === "blocks" && <><Blocks isAdmin={isAdmin} /><Fail2banList isAdmin={isAdmin} onIp={setIp} /></>}
       {ip && <IpDetail ip={ip} onClose={() => setIp(null)} onFilter={(x) => { window.location.href = `/access?ip=${encodeURIComponent(x)}`; }} isAdmin={isAdmin} />}
     </>
   );

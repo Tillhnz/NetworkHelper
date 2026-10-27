@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import accesslog, audit, detect, geoip, hostwatch, ratelimit
+from .. import accesslog, audit, detect, fail2ban, geoip, hostwatch, ratelimit
 from ..config import settings
 from ..database import get_db
 from ..models import Agent, User, WatchEvent
@@ -54,7 +54,18 @@ def agent_row(a: Agent) -> dict:
         "created_at": a.created_at.isoformat() if a.created_at else None, "info": _json(a.info, {}),
         "log_files": _json(a.log_files, []), "enforce_blocks": bool(a.enforce_blocks), "block_status": a.block_status,
         "lines_total": a.lines_total or 0, "parse_errors": a.parse_errors or 0,
+        "fail2ban": _f2b_summary(a),
     }
+
+
+def _f2b_summary(a: Agent) -> dict:
+    st = fail2ban.load(a)
+    if not st.get("installed"):
+        return {"installed": False}
+    return {"installed": True, "running": bool(st.get("running")), "managed": bool(st.get("managed")), "error": st.get("error"),
+            "banned": sum(j.get("banned", 0) for j in st.get("jails", [])),
+            "jails": [{"name": j["name"], "label": fail2ban.JAIL_LABELS.get(j["name"], j["name"]), "banned": j.get("banned", 0),
+                       "total_banned": j.get("total_banned", 0)} for j in st.get("jails", [])]}
 
 
 def install_command(request: Request, token: str) -> str:
@@ -183,6 +194,7 @@ class StateIn(BaseModel):
     log_files: list[dict] = Field(default_factory=list, max_length=200)
     enforce_blocks: bool = False
     block_status: str | None = Field(default=None, max_length=300)
+    fail2ban: dict = Field(default_factory=dict)
 
 
 @router.post("/agent/state")
@@ -199,12 +211,22 @@ def agent_state(data: StateIn, request: Request, authorization: str | None = Hea
     agent.last_seen, agent.last_ip = now, ratelimit.client_ip(request)
     db.commit()
     hostwatch.check_ports(db, agent, data.listening)
+    if data.fail2ban:
+        fail2ban.ingest(db, agent, data.fail2ban)
     from .. import geoblock
     blocks = sorted(b.cidr for b in detect.active_blocks(db))
     http_hash, snippet = geoblock.current(db)
     digest = hashlib.sha256(("\n".join(blocks) + "|" + (http_hash or "")).encode()).hexdigest()[:16]
     return {"blocklist": blocks, "blocklist_hash": digest, "http_conf_hash": http_hash, "server_snippet": snippet if http_hash else "",
-            "interval": 30, "agent_version": agent_version()}
+            "interval": 30, "agent_version": agent_version(), "own_ips": fail2ban.own_ips(db),
+            "f2b_unban": fail2ban.take_unban(db, agent.id)}
+
+
+@router.get("/agent/own-ips")
+def agent_own_ips(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Eigene öffentliche IPs, die fail2ban beim Einrichten gleich ausnehmen soll."""
+    _agent_from_token(authorization, db)
+    return {"own_ips": fail2ban.own_ips(db)}
 
 
 def agent_version() -> str | None:
