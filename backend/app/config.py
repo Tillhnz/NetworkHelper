@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     two_factor_required: bool = False
     frame_ancestors: str = ""  # Adressen, die NetworkHelper einbetten dürfen (z. B. Home Assistant), mit Leerzeichen getrennt
     cookie_samesite: str = "strict"  # strict | lax | none (none nur für Einbettung unter fremder Domain, braucht HTTPS)  # alle Konten müssen die Zwei-Faktor-Anmeldung einrichten
+    adguard_url: str = ""  # z. B. http://192.168.178.53 (Weboberfläche von AdGuard Home)
+    adguard_user: str = ""
+    adguard_password: str = ""
+    cert_auto_renew: bool = True  # Let's-Encrypt-Zertifikate im Proxy Manager rechtzeitig selbst erneuern
+    cert_auto_renew_days: int = 14  # so viele Tage vor Ablauf
     exposure_enabled: bool = True  # Selbsttest: sind .env, .git usw. auf den eigenen Seiten lesbar?
     exposure_interval_h: int = 24  # Städtedatenbank für die Karte (rund 130 MB)
 

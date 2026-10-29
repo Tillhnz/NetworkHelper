@@ -162,9 +162,9 @@ def run(db: Session, hosts: list[str] | None = None) -> int:
                                    dedupe_key=f"cert-invalid:{row.host}", dedupe_hours=24)
             elif days < 5:
                 notify.raise_alert(db, "crit", "cert", f"Zertifikat von {row.host} läuft in {max(days, 0)} Tagen ab",
-                                   "Prüfe die automatische Erneuerung im Proxy Manager (SSL Certificates).", dedupe_key=f"cert-days:{row.host}:crit", dedupe_hours=24)
+                                   "Unter Sicherheit → Zertifikate & Header → „Jetzt erneuern“ drücken. Dort steht auch, warum die automatische Erneuerung scheitert.", dedupe_key=f"cert-days:{row.host}:crit", dedupe_hours=24)
             elif days < 14:
                 notify.raise_alert(db, "warn", "cert", f"Zertifikat von {row.host} läuft in {days} Tagen ab",
-                                   "Let's Encrypt erneuert normalerweise 30 Tage vorher. Läuft die Erneuerung?", dedupe_key=f"cert-days:{row.host}:warn", dedupe_hours=72)
+                                   "Let's Encrypt erneuert normalerweise 30 Tage vorher. Unter Sicherheit → Zertifikate kannst du es erneuern und siehst, warum es nicht klappt.", dedupe_key=f"cert-days:{row.host}:warn", dedupe_hours=72)
     db.commit()
     return len(rows)

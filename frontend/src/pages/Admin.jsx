@@ -380,11 +380,18 @@ const DNS = [
   { key: "dns_new_record_type", type: "select", label: "Neue Records für Proxy Hosts", options: [["A", "A-Record mit öffentlicher IP (DynDNS)"], ["CNAME", "CNAME auf die Hauptdomain"]] },
   { key: "public_ip_override", type: "text", label: "Öffentliche IP fest vorgeben (optional)", placeholder: "leer = automatisch", hint: "Nur nötig, wenn die automatische Erkennung falsch liegt." },
 ];
+const ADGUARD = [
+  { key: "adguard_url", type: "text", label: "Adresse der Weboberfläche", wide: true, placeholder: "http://192.168.178.53", hint: "So, wie du AdGuard Home im Browser öffnest (mit Port, falls nicht 80)." },
+  { key: "adguard_user", type: "text", label: "Benutzername" },
+  { key: "adguard_password", type: "text", secret: true, label: "Passwort" },
+];
 const NPM = [
   { key: "npm_url", type: "text", label: "Adresse der Verwaltung", wide: true, placeholder: "http://192.168.1.10:81", hint: "Die Adminoberfläche des Proxy Managers, meist Port 81." },
   { key: "npm_email", type: "text", label: "E-Mail des Kontos" },
-  { key: "npm_password", type: "text", secret: true, label: "Passwort", hint: "Am besten ein eigenes Konto im Proxy Manager, das nur Proxy Hosts sehen darf." },
+  { key: "npm_password", type: "text", secret: true, label: "Passwort", hint: "Am besten ein eigenes Konto im Proxy Manager. Zum Ansehen reicht „Nur ansehen“ bei Proxy Hosts und Zertifikaten; zum Erneuern braucht es bei Zertifikaten „Verwalten“." },
   { key: "npm_auto_monitors", type: "bool", label: "Für jeden Proxy Host automatisch die Erreichbarkeit überwachen" },
+  { key: "cert_auto_renew", type: "bool", label: "Zertifikate rechtzeitig selbst erneuern", hint: "Klappt die Erneuerung im Proxy Manager nicht, versucht NetworkHelper es selbst (höchstens alle 12 Stunden) und erklärt dir den Grund. Das Konto braucht bei „Zertifikate“ das Recht „Verwalten“." },
+  { key: "cert_auto_renew_days", type: "number", label: "Erneuern, wenn weniger als so viele Tage übrig sind", min: 1, max: 60 },
   { key: "npm_auto_dns", type: "bool", label: "Fehlende DNS-Records bei Porkbun automatisch anlegen", hint: "Sobald du im Proxy Manager einen Host für eine deiner Domains anlegst, entsteht der Record innerhalb von 10 Minuten." },
 ];
 const SECURITY = [
@@ -449,6 +456,12 @@ export default function Admin({ user }) {
             intro: <>Schlüssel erzeugst du bei Porkbun unter <strong>Account → API Access</strong>. Danach bei jeder Domain unter <strong>Details</strong> „API Access“ einschalten.</>,
             spec: DNS,
             extra: data.porkbun_ready && <TestButton label="Verbindung testen" path="/admin/settings/test-porkbun" describe={(r) => `OK, IP ${r.ip}, Domains: ${r.domains.join(", ") || "keine"}`} />,
+          })}
+          {tab === "dns" && block({
+            title: "AdGuard Home",
+            intro: "Optional. NetworkHelper zeigt dann Sperren und Statistik, warnt, wenn Geräte Schadseiten aufrufen wollten oder AdGuard ausfällt, und legt auf Wunsch Umschreibungen für deine eigenen Domains an.",
+            spec: ADGUARD,
+            extra: data.adguard_ready && <TestButton label="Verbindung testen" path="/admin/settings/test-adguard" describe={(r) => `OK, AdGuard ${r.version}, Schutz ${r.protection ? "an" : "aus"}, ${r.queries} Anfragen.`} />,
           })}
           {tab === "npm" && block({
             title: "Nginx Proxy Manager",

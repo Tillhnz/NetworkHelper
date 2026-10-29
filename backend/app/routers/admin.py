@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from .. import audit, geoip, notify, npm, porkbun, publicip, scheduler, server_settings
+from .. import adguard, audit, geoip, notify, npm, porkbun, publicip, scheduler, server_settings
 from ..config import settings
 from ..database import get_db
 from ..models import AuditEntry, Invite, User
@@ -136,7 +136,8 @@ class SettingsIn(BaseModel):
 
 def _settings_payload(db: Session) -> dict:
     return {"fields": server_settings.describe(db), "smtp_ready": notify.smtp_configured(),
-            "porkbun_ready": porkbun.configured(), "npm_ready": npm.configured()}
+            "porkbun_ready": porkbun.configured(), "npm_ready": npm.configured(),
+            "adguard_ready": adguard.configured()}
 
 
 @router.get("/settings")
@@ -207,6 +208,16 @@ def test_porkbun(admin: User = Depends(require_admin), db: Session = Depends(get
     if ip:
         publicip.current(db, refresh=True)
     return {"ok": True, "ip": ip, "domains": domains}
+
+
+@router.post("/settings/test-adguard")
+def test_adguard(admin: User = Depends(require_admin)):
+    try:
+        st = adguard.status()
+        stats = adguard.stats()
+    except adguard.AdGuardError as e:
+        raise HTTPException(502, str(e))
+    return {"ok": True, "version": st["version"], "protection": st["protection"], "queries": stats["queries"]}
 
 
 @router.post("/settings/test-npm")

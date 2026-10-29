@@ -268,6 +268,7 @@ class Monitor(Base):
     last_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
     changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    diagnosis: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: letzte Fehlersuche beim Ausfall
 
 
 class MonitorResult(Base):

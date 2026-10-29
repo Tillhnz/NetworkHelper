@@ -253,3 +253,159 @@ def test_agent_fail2ban_sync():
     assert ("set", "sshd", "unbanip", "79.208.166.153") in calls  # eigene IP sofort frei
     assert not any("10.0.0.0/8" in c for c in calls) and not any("gibts; nicht" in c for c in calls)
     assert not any(c[:3] == ("set", "networkhelper", "banip") and c[3] == "79.208.166.153" for c in calls)
+
+
+def _fake_net(monkeypatch, **over):
+    from app import diagnose
+    net = dict(
+        resolve_public=lambda name: {"status": "ok", "a": ["79.208.166.153"], "aaaa": [], "source": "Test"},
+        tcp_check=lambda host, port, timeout=4: "open",
+        tls_check=lambda host, port=443, connect_to=None: {"ok": True, "days": 60, "issuer": "Let's Encrypt", "error": None},
+        speaks=lambda host, port: "http",
+        http_get=lambda url: {"status": 200, "server": "openresty", "text": "<html>App</html>"},
+        npm_hosts=lambda: [{"id": 3, "domains": ["cloud.example.de"], "scheme": "http", "host": "192.168.1.20", "port": 80,
+                            "enabled": True, "online": True, "nginx_err": None, "certificate_id": 2, "access_list": False}],
+        adguard_check=lambda host: None,
+    )
+    net.update(over)
+    for k, v in net.items():
+        monkeypatch.setattr(diagnose, k, v)
+    return diagnose
+
+
+def _db_with_ip(ip="79.208.166.153"):
+    import os
+    import tempfile
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.database import Base
+    from app import state
+    eng = create_engine(f"sqlite:///{tempfile.mkdtemp()}/d.db")
+    Base.metadata.create_all(eng)
+    db = sessionmaker(bind=eng)()
+    state.put(db, "public_ip", {"ip": ip, "since": "2026-01-01T00:00:00"})
+    return db
+
+
+def test_diagnose_all_fine(monkeypatch):
+    d = _fake_net(monkeypatch)
+    res = d.run(_db_with_ip(), "https://cloud.example.de/login")
+    assert res["host"] == "cloud.example.de" and res["verdict"]["status"] == "ok"
+    assert [s["key"] for s in res["steps"]] == ["dns", "ip", "port", "tls", "npm", "upstream", "http"]
+
+
+def test_diagnose_finds_causes(monkeypatch):
+    db = _db_with_ip()
+    d = _fake_net(monkeypatch, resolve_public=lambda n: {"status": "nxdomain", "a": [], "aaaa": [], "source": "Test"},
+                  http_get=lambda u: {"status": None, "error": "ConnectError"})
+    v = d.run(db, "neu.example.de")["verdict"]
+    assert v["status"] == "fail" and "Name im Internet" in v["title"] and "Porkbun" in v["fix"]
+    d = _fake_net(monkeypatch, npm_hosts=lambda: [], http_get=lambda u: {"status": 200, "text": "Congratulations! Nginx Proxy Manager"})
+    assert "kennt den Namen" in d.run(db, "cloud.example.de")["verdict"]["title"]
+    d = _fake_net(monkeypatch, speaks=lambda h, p: "https", http_get=lambda u: {"status": 502, "server": "openresty", "text": "bad"})
+    v = d.run(db, "cloud.example.de")["verdict"]
+    assert "Dienst dahinter" in v["title"] and "https" in v["fix"]
+    d = _fake_net(monkeypatch, tcp_check=lambda h, p, timeout=4: "refused" if h == "192.168.1.20" else "open",
+                  http_get=lambda u: {"status": 502, "text": ""})
+    assert "lehnt ab" in d.run(db, "cloud.example.de")["verdict"]["text"]
+    d = _fake_net(monkeypatch, resolve_public=lambda n: {"status": "ok", "a": ["84.1.1.1"], "aaaa": [], "source": "T"})
+    from app import notify
+    notify.raise_alert(db, "info", "ip", "Neue öffentliche IP: 79.208.166.153", "Vorher: 84.1.1.1")
+    v = d.run(db, "cloud.example.de")["verdict"]
+    assert v["status"] == "fail" and "frühere IP" in v["text"] and "DynDNS" in v["fix"]
+    d = _fake_net(monkeypatch, npm_hosts=lambda: [{"id": 3, "domains": ["*.example.de"], "scheme": "http", "host": "x", "port": 80,
+                                                   "enabled": True, "online": False, "nginx_err": "cannot load certificate", "certificate_id": 2,
+                                                   "access_list": False}], http_get=lambda u: {"status": 200, "text": "Congratulations! Nginx Proxy Manager"})
+    v = d.run(db, "cloud.example.de")["verdict"]
+    assert "Offline" in v["text"] and "cannot load certificate" in v["text"]
+    d = _fake_net(monkeypatch, tcp_check=lambda h, p, timeout=4: "refused" if (h, p) == ("79.208.166.153", 80) else "open")
+    v = d.run(db, "cloud.example.de")["verdict"]
+    assert v["status"] == "warn" and "Port 80" in v["title"]
+
+
+def test_cert_errors_explained():
+    from app import certs
+    why, fix = certs.explain("Some challenges have failed. Timeout during connect (likely firewall problem)")
+    assert "Port 80" in why and "FRITZ!Box" in fix
+    assert "DNS" in certs.explain("DNS problem: NXDOMAIN looking up A for x.example.de")[0]
+    assert "zu viele" in certs.explain("Error creating new order :: too many certificates already issued")[0]
+    assert "läuft gerade" in certs.explain("Another instance of Certbot is already running.")[0]
+    assert certs.explain("etwas ganz anderes")[0].startswith("Der Proxy Manager meldet")
+
+
+def test_cert_auto_renew(monkeypatch):
+    from datetime import timedelta
+    from app import certs, npm
+    from app.config import settings
+    from app.models import Alert
+    db = _db_with_ip()
+    soon = (datetime.utcnow() + timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S")
+    later = (datetime.utcnow() + timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
+    monkeypatch.setattr(settings, "cert_auto_renew", True)
+    monkeypatch.setattr(settings, "cert_auto_renew_days", 14)
+    monkeypatch.setattr(npm, "configured", lambda: True)
+    monkeypatch.setattr(npm, "certificates", lambda: [
+        {"id": 1, "name": "bald.example.de", "provider": "letsencrypt", "expires_on": soon},
+        {"id": 2, "name": "spaeter.example.de", "provider": "letsencrypt", "expires_on": later},
+        {"id": 3, "name": "eigenes", "provider": "other", "expires_on": soon}])
+    calls = []
+
+    def fail(cid):
+        calls.append(cid)
+        raise npm.NpmError("Timeout during connect (likely firewall problem)")
+    monkeypatch.setattr(npm, "renew_certificate", fail)
+    certs.run(db)
+    assert calls == [1]
+    alert = db.query(Alert).filter(Alert.kind == "cert").one()
+    assert alert.severity == "crit" and "Port 80" in alert.body
+    certs.run(db)  # Pause nach Fehlversuch
+    assert calls == [1]
+    monkeypatch.setattr(npm, "raw_proxy_hosts", lambda: [{"certificate_id": 1, "domains": ["bald.example.de"]}])
+    ov = certs.overview(db)
+    assert ov["items"][0]["id"] == 1 and ov["items"][0]["last"]["ok"] is False and ov["items"][0]["used_by"] == ["bald.example.de"]
+    assert not next(i for i in ov["items"] if i["id"] == 3)["renewable"]
+
+
+def test_diagnose_adguard(monkeypatch):
+    db = _db_with_ip()
+    d = _fake_net(monkeypatch, adguard_check=lambda h: {"blocked": True, "reason_label": "Filterliste", "rule": "||example.de^", "rewrite": None, "npm_ip": "192.168.1.5"})
+    v = d.run(db, "cloud.example.de")["verdict"]
+    assert v["status"] == "fail" and "AdGuard" in v["title"] and "freigeben" in v["fix"]
+    d = _fake_net(monkeypatch, adguard_check=lambda h: {"blocked": False, "rewrite": "192.168.1.99", "npm_ip": "192.168.1.5", "reason_label": ""})
+    assert d.run(db, "cloud.example.de")["verdict"]["status"] == "warn"
+
+
+def test_adguard_parsing_and_alerts(monkeypatch):
+    from app import adguard, npm
+    from app.config import settings
+    from app.models import Alert
+    monkeypatch.setattr(settings, "adguard_url", "http://192.168.1.53")
+    monkeypatch.setattr(settings, "npm_url", "http://192.168.1.5:81")
+    log = {"data": []}
+
+    def fake(method, path, json=None, params=None, timeout=10):
+        if path == "/status":
+            return {"version": "v0.107.52", "running": True, "protection_enabled": True}
+        if path == "/querylog":
+            return log
+        if path == "/stats":
+            return {"num_dns_queries": 1000, "num_blocked_filtering": 150, "num_replaced_safebrowsing": 2,
+                    "top_blocked_domains": [{"ads.example.com": 90}], "top_clients": [{"192.168.1.20": 500}]}
+        raise AssertionError(path)
+    monkeypatch.setattr(adguard, "_req", fake)
+    st = adguard.stats()
+    assert st["blocked_pct"] == 15.2 and st["top_blocked"] == [{"name": "ads.example.com", "count": 90}]
+    db = _db_with_ip()
+    adguard.run(db)  # erster Lauf merkt sich nur den Stand
+    log["data"] = [{"time": "2026-10-29T10:00:00.1+01:00", "question": {"name": "evil.example", "type": "A"},
+                    "client": "192.168.1.20", "client_info": {"name": "Laptop"}, "reason": "FilteredSafeBrowsing"}]
+    adguard.run(db)
+    alert = db.query(Alert).filter(Alert.kind == "adguard").one()
+    assert "Laptop" in alert.title and "evil.example" in alert.body
+    adguard.run(db)
+    assert db.query(Alert).filter(Alert.kind == "adguard").count() == 1
+    monkeypatch.setattr(npm, "configured", lambda: True)
+    monkeypatch.setattr(npm, "raw_proxy_hosts", lambda: [{"enabled": True, "domains": ["a.example.de", "b.example.de", "c.other.de"]}])
+    sug = adguard.suggestions([{"domain": "c.other.de", "answer": "192.168.1.7"}])
+    assert sug["ip"] == "192.168.1.5" and sug["items"] == ["a.example.de", "b.example.de"]
+    assert sug["wildcards"] == ["*.example.de"] and sug["wrong"][0]["domain"] == "c.other.de"

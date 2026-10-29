@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import AdGuard from "../components/AdGuard.jsx";
 import { api, fmtAgo } from "../api.js";
 import { Switch } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
@@ -164,6 +165,8 @@ export default function Dns({ user }) {
   const [error, setError] = useState("");
   const [domain, setDomain] = useState("");
   const [busy, setBusy] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "adguard" ? "adguard" : "domains";
   const load = useCallback(() => api.get("/dns/status").then((s) => { setSt(s); setDomain((d) => d || s.domains[0] || ""); }).catch((e) => setError(e.message)), []);
   useEffect(() => { load(); }, [load]);
 
@@ -177,6 +180,16 @@ export default function Dns({ user }) {
     } catch (e) { toast(e.message, "error"); } finally { setBusy(false); }
   }
 
+  const tabs = (
+    <div className="tabs" role="tablist" aria-label="DNS-Bereiche">
+      {[["domains", "Domains (Porkbun)"], ["adguard", "AdGuard Home"]].map(([k, label]) => (
+        <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setParams(k === "domains" ? {} : { tab: k })}>{label}</button>
+      ))}
+    </div>
+  );
+  if (tab === "adguard") {
+    return <><header className="page-head"><h1>DNS</h1></header>{tabs}<AdGuard isAdmin={isAdmin} /></>;
+  }
   if (error) return <p className="error">{error}</p>;
   if (!st) return <Loading rows={3} />;
   const ip = st.public_ip || {};
@@ -184,6 +197,7 @@ export default function Dns({ user }) {
   return (
     <>
       <header className="page-head"><h1>DNS</h1></header>
+      {tabs}
       <PageIntro id="dns" />
       {!st.configured ? (
         <EmptyState title="Porkbun ist noch nicht verbunden" text="Lege bei Porkbun unter Account → API Access einen Schlüssel an und schalte bei jeder Domain unter „Details“ den API-Zugriff ein. Dann trägst du beides unter Administration ein.">

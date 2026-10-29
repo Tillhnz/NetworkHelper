@@ -5,6 +5,8 @@ Warnung auslöst. Fällt er aus oder ist er wieder da, entsteht eine Meldung.
 """
 from __future__ import annotations
 
+import logging
+
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -80,7 +82,15 @@ def apply_result(db: Session, m: Monitor, res: dict, now: datetime) -> None:
         m.fails = (m.fails or 0) + 1
         if m.fails >= FAILS_FOR_DOWN and m.state != "down":
             m.state, m.changed_at = "down", now
-            notify.raise_alert(db, "crit", "uptime", f"{m.name} ist nicht erreichbar", f"{res['error']}\n{m.url}",
+            cause = ""
+            try:  # gleich nach der Ursache suchen und sie in die Meldung schreiben
+                from . import diagnose
+                found = diagnose.run(db, m.url)
+                m.diagnosis = diagnose.dumps(found)
+                cause = "\n\n" + diagnose.summary_text(found)
+            except Exception:  # noqa: BLE001 – die Meldung geht auch ohne Fehlersuche raus
+                logging.getLogger("networkhelper.uptime").exception("Fehlersuche für %s", m.url)
+            notify.raise_alert(db, "crit", "uptime", f"{m.name} ist nicht erreichbar", f"{res['error']}\n{m.url}{cause}",
                                dedupe_key=f"down:{m.id}:{now:%Y%m%d%H}", dedupe_hours=0.5)
 
 

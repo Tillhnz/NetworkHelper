@@ -1,4 +1,5 @@
 """Erreichbarkeit: Monitore anlegen, ändern, prüfen und ihren Verlauf zeigen."""
+import json
 import re
 import threading
 
@@ -45,6 +46,7 @@ def _row(db: Session, m: Monitor, with_history: bool = True) -> dict:
            "enabled": m.enabled, "source": m.source, "state": m.state if m.enabled else "paused",
            "last_check": m.last_check.isoformat() if m.last_check else None, "latency_ms": m.last_latency_ms,
            "last_status": m.last_status, "last_error": m.last_error, "changed_at": m.changed_at.isoformat() if m.changed_at else None,
+           "diagnosis": json.loads(m.diagnosis) if m.diagnosis and m.state == "down" else None,
            "uptime_24h": uptime.uptime_pct(db, m.id, 1), "uptime_7d": uptime.uptime_pct(db, m.id, 7), "uptime_30d": uptime.uptime_pct(db, m.id, 30)}
     if with_history:
         out["history"] = uptime.history(db, m.id, 24, 48)

@@ -5,6 +5,7 @@ import { Switch } from "../components/controls.jsx";
 import { confirmDialog, Loading, toast } from "../components/feedback.jsx";
 import { Dot, EmptyState, Pill, usePoll } from "../components/ui.jsx";
 import { PageIntro, Term } from "../components/help.jsx";
+import Diagnose, { DiagnoseResult } from "../components/Diagnose.jsx";
 
 const EMPTY = { name: "", url: "https://", expect: "200-399", keyword: "", verify_tls: true, enabled: true };
 
@@ -41,6 +42,7 @@ export default function Uptime({ user }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
   const [edit, setEdit] = useState(null); // id | "new"
+  const [diagTarget, setDiagTarget] = useState("");
   const load = useCallback(() => api.get("/monitors").then((r) => { setRows(r); setError(""); }).catch((e) => setError(e.message)), []);
   usePoll(load, 20000);
 
@@ -79,6 +81,7 @@ export default function Uptime({ user }) {
           {down ? `${down} von ${rows.length} Diensten nicht erreichbar` : `Alle ${rows.filter((r) => r.state === "up").length} Dienste erreichbar`}
         </p>
       )}
+      <Diagnose key={diagTarget} initial={diagTarget} />
       {edit === "new" && <section className="panel"><h2>Neuer Dienst</h2><MonitorForm onSave={(v) => save("new", v)} onCancel={() => setEdit(null)} /></section>}
       {!rows ? <Loading rows={3} /> : rows.length === 0 ? (
         <EmptyState title="Noch keine Dienste" text="Verbinde den Proxy Manager unter Administration: Für jeden Proxy Host entsteht dann automatisch ein Monitor. Oder füge Adressen selbst hinzu." />
@@ -104,6 +107,7 @@ export default function Uptime({ user }) {
                     </div>
                   </div>
                   <UptimeStrip history={m.history} />
+                  {m.state === "down" && m.diagnosis && <DiagnoseResult res={m.diagnosis} compact />}
                   <div className="monitor-foot">
                     <span className="muted small">
                       {m.state === "paused" ? <Pill status="paused" /> : m.state === "down" ? <span className="error">{m.last_error}</span> : m.last_check ? `Zuletzt geprüft ${fmtAgo(m.last_check)}${m.last_status ? `, Antwort ${m.last_status}` : ""}` : "Noch nicht geprüft"}
@@ -112,6 +116,7 @@ export default function Uptime({ user }) {
                     <Sparkline values={m.history.map((h) => h.latency)} />
                     {isAdmin && (
                       <span className="rule-actions">
+                        {m.state === "down" && <button className="link small" onClick={() => { setDiagTarget(m.url); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Ursache suchen</button>}
                         <button className="link small" onClick={() => setEdit(m.id)}>Bearbeiten</button>
                         {m.source !== "npm" && <button className="link small danger" onClick={() => remove(m)}>Löschen</button>}
                       </span>

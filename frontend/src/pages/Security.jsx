@@ -8,6 +8,7 @@ import { IpDetail } from "./Access.jsx";
 import Exposure from "./SecurityExposure.jsx";
 import Apps from "./SecurityApps.jsx";
 import Geo from "./SecurityGeo.jsx";
+import Certificates from "../components/Certificates.jsx";
 import { Fail2banList } from "../components/Fail2ban.jsx";
 import { InfoTip, PageIntro, Term, useHelp } from "../components/help.jsx";
 import { GuideCard } from "../components/RouterGuide.jsx";
@@ -368,7 +369,7 @@ export default function Security({ user }) {
       </div>
       {tab === "ports" && <Ports isAdmin={isAdmin} />}
       {tab === "router" && <RouterCheck isAdmin={isAdmin} />}
-      {tab === "sites" && <Sites isAdmin={isAdmin} />}
+      {tab === "sites" && <><Certificates isAdmin={isAdmin} /><Sites isAdmin={isAdmin} /></>}
       {tab === "incidents" && <Incidents isAdmin={isAdmin} onIp={setIp} />}
       {tab === "exposure" && <Exposure isAdmin={isAdmin} />}
       {tab === "apps" && <Apps isAdmin={isAdmin} />}

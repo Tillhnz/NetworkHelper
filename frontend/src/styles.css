@@ -1062,3 +1062,27 @@ ul.bullet li{margin:.3rem 0}
 .f2b-ips{list-style:none;margin:.3rem 0 0;padding:0;display:grid;gap:.25rem}
 .f2b-ips li{display:flex;gap:.5rem;align-items:center;background:var(--panel-2);border-radius:6px;padding:.3rem .55rem;min-width:0}
 .f2b-ips .grow{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- Fehlersuche ---------- */
+.diag{margin-top:1rem;border-left:4px solid var(--line);padding:.2rem 0 .2rem 1rem}
+.diag-ok{border-left-color:var(--celeste)}
+.diag-warn{border-left-color:var(--amber)}
+.diag-fail{border-left-color:var(--signal)}
+.diag-verdict p{margin:.25rem 0;max-width:60rem}
+.diag-steps{list-style:none;margin:.9rem 0 .6rem;padding:0;display:grid;gap:.55rem}
+.diag-steps li{display:flex;gap:.7rem;align-items:flex-start}
+.diag-icon{flex:0 0 1.5rem;height:1.5rem;border-radius:50%;display:grid;place-items:center;font-size:.8rem;font-weight:700;background:var(--line);color:var(--ink)}
+.st-ok .diag-icon{background:var(--celeste);color:#06231f}
+.st-warn .diag-icon{background:var(--amber);color:#2b1d00}
+.st-fail .diag-icon{background:var(--signal);color:#fff}
+.st-info .diag-icon{background:var(--sky);color:#04203a}
+.st-skip{opacity:.6}
+.monitor-list .diag{margin:.6rem 0 0}
+.cert-list>li{padding:.75rem 0;border-bottom:1px solid var(--line)}
+.cert-list>li:last-child{border-bottom:0}
+.cert-head{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+.cert-error{margin-top:.5rem;border-left:3px solid var(--signal);padding-left:.75rem}
+.cert-error p{margin:.2rem 0}
+.suggest{border:1px dashed var(--celeste);border-radius:var(--r-panel);padding:.6rem 1rem;margin:.8rem 0}
+.suggest p{margin:.2rem 0 .5rem}
+.suggest li{display:flex;gap:.75rem;align-items:center;padding:.3rem 0}

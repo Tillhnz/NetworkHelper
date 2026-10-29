@@ -8,7 +8,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from . import geoip, scheduler, server_settings
 from .config import settings
 from .database import Base, SessionLocal, engine, ensure_columns
-from .routers import access, admin, agents, auth, dns, monitors, overview, security
+from .routers import access, adguard, admin, agents, auth, diagnose, dns, monitors, overview, security
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -41,7 +41,7 @@ async def security_headers(request, call_next):
     return response
 
 
-for r in (auth, admin, agents, access, security, monitors, dns, overview):
+for r in (auth, admin, agents, access, security, monitors, dns, overview, diagnose, adguard):
     app.include_router(r.router)
 
 

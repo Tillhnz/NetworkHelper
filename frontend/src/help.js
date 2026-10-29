@@ -122,6 +122,22 @@ export const GLOSSARY = {
     title: "Zwei-Faktor-Anmeldung",
     text: "Neben dem Passwort brauchst du beim Anmelden einen zweiten Nachweis: einen 6-stelligen Code, den eine App auf deinem Handy alle 30 Sekunden neu erzeugt. Wer nur dein Passwort kennt, kommt so nicht hinein. Für den Notfall gibt es Wiederherstellungscodes, die du sicher ablegst.",
   },
+  dns_rewrite: {
+    title: "DNS-Umschreibung",
+    text: "Normalerweise fragt ein Gerät zu Hause nach cloud.deine-domain.de und bekommt deine öffentliche IP. Die Anfrage geht dann zum Router und zurück ins Heimnetz. Das klappt nicht mit jedem Router und bricht ab, wenn die IP wechselt. Mit einer Umschreibung antwortet AdGuard direkt mit der Heimnetz-Adresse des Proxy Managers. Von unterwegs ändert sich nichts.",
+  },
+  safebrowsing: {
+    title: "Schadseiten",
+    text: "AdGuard gleicht jeden Namen mit einer Liste bekannter Phishing- und Schadsoftware-Seiten ab. Ein Treffer heißt: Ein Gerät wollte eine solche Seite aufrufen und wurde geschützt. NetworkHelper meldet das, weil ein Gerät mit vielen Treffern infiziert sein kann.",
+  },
+  cert_renew: {
+    title: "Zertifikate erneuern",
+    text: "Let's-Encrypt-Zertifikate gelten 90 Tage. Der Proxy Manager erneuert sie normalerweise 30 Tage vor Ablauf selbst. Dafür ruft Let's Encrypt über Port 80 eine kleine Bestätigungsdatei bei dir ab. Ist Port 80 am Router zu, zeigt der Name auf eine alte IP oder sperrt eine Länderregel die USA, scheitert das still, bis Besucher eine Warnung sehen. NetworkHelper erneuert rechtzeitig selbst und übersetzt die Fehlermeldung.",
+  },
+  diagnose: {
+    title: "Fehlersuche",
+    text: "Damit eine Seite wie cloud.deine-domain.de lädt, muss eine ganze Kette funktionieren: Der Name zeigt im Internet auf deine aktuelle IP (DNS), der Router leitet Port 443 an den Proxy Manager weiter, das Zertifikat passt, der Proxy-Host ist eingeschaltet und fehlerfrei, und der Dienst dahinter läuft auf der eingetragenen Adresse und dem richtigen Protokoll (http oder https). NetworkHelper prüft jede Station einzeln und nennt die erste, die nicht klappt. Fällt ein überwachter Dienst aus, läuft diese Prüfung automatisch und das Ergebnis steht in der Benachrichtigung.",
+  },
   attack_hit: {
     title: "Ist ein Angriff gelungen?",
     text: "Angreifer probieren bei jedem Server Adressen wie /.env oder /.git/config aus, weil dort oft Passwörter liegen. Bekommen sie „200 OK“, kann das ein Treffer sein, oder die App zeigt einfach ihre Startseite. NetworkHelper ruft diese Adressen deshalb selbst auf und prüft, ob wirklich eine solche Datei ausgeliefert wird. Nur dann gilt der Angriff als gelungen.",

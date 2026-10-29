@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .. import appversions, audit, detect, exposure, fail2ban, geoblock, portscan, scheduler, state
+from .. import appversions, audit, certs, npm, detect, exposure, fail2ban, geoblock, portscan, scheduler, state
 from ..database import get_db
 from ..models import Agent, ExpectedPort, Exposure, GeoRule, Incident, PortFinding, SiteCheck, User
 from ..security import current_user, require_admin
@@ -396,3 +396,27 @@ def fail2ban_unban(data: UnbanIn, admin: User = Depends(require_admin), db: Sess
         raise HTTPException(422, str(e))
     audit.record(db, admin.email, "fail2ban.unban", res["ip"])
     return res
+
+
+@router.get("/certificates")
+def certificates(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    try:
+        return certs.overview(db)
+    except npm.NpmError as e:
+        return {"configured": True, "error": str(e), "items": [], "auto": False, "auto_days": 14}
+
+
+@router.post("/certificates/{cert_id}/renew", status_code=202)
+def renew_certificate(cert_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    try:
+        match = next((c for c in npm.certificates() if c["id"] == cert_id), None)
+    except npm.NpmError as e:
+        raise HTTPException(502, str(e))
+    if not match:
+        raise HTTPException(404, "Zertifikat nicht gefunden")
+    if not certs.renewable(match):
+        raise HTTPException(422, "Dieses Zertifikat wurde von Hand hochgeladen und kann nicht automatisch erneuert werden.")
+    if not certs.renew_in_background(cert_id, match["name"]):
+        raise HTTPException(409, "Die Erneuerung läuft bereits.")
+    audit.record(db, admin.email, "cert.renew", match["name"])
+    return {"started": True}
