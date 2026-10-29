@@ -274,7 +274,6 @@ def _fake_net(monkeypatch, **over):
 
 
 def _db_with_ip(ip="79.208.166.153"):
-    import os
     import tempfile
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
