@@ -8,13 +8,14 @@ import { IpDetail } from "./Access.jsx";
 import Exposure from "./SecurityExposure.jsx";
 import Apps from "./SecurityApps.jsx";
 import Geo from "./SecurityGeo.jsx";
+import Proxmox from "./SecurityProxmox.jsx";
 import Certificates from "../components/Certificates.jsx";
 import { Fail2banList } from "../components/Fail2ban.jsx";
 import { InfoTip, PageIntro, Term, useHelp } from "../components/help.jsx";
 import { GuideCard } from "../components/RouterGuide.jsx";
 import { CHECKLIST, GUIDES, guidesForPort, ROUTERS } from "../routerGuides.js";
 
-const TABS = [["ports", "Offene Ports"], ["router", "Router absichern"], ["sites", "Zertifikate & Header"], ["incidents", "Vorfälle"], ["exposure", "Angriffe gelungen?"], ["apps", "Apps aktuell?"], ["geo", "Länder & Listen"], ["blocks", "Sperrliste"]];
+const TABS = [["ports", "Offene Ports"], ["router", "Router absichern"], ["sites", "Zertifikate & Header"], ["incidents", "Vorfälle"], ["exposure", "Angriffe gelungen?"], ["apps", "Apps aktuell?"], ["proxmox", "Proxmox"], ["geo", "Länder & Listen"], ["blocks", "Sperrliste"]];
 
 function useWatch(load, running) {
   // Während ein Scan läuft, regelmäßig nachfragen
@@ -369,6 +370,7 @@ export default function Security({ user }) {
       </div>
       {tab === "ports" && <Ports isAdmin={isAdmin} />}
       {tab === "router" && <RouterCheck isAdmin={isAdmin} />}
+      {tab === "proxmox" && <Proxmox isAdmin={isAdmin} />}
       {tab === "sites" && <><Certificates isAdmin={isAdmin} /><Sites isAdmin={isAdmin} /></>}
       {tab === "incidents" && <Incidents isAdmin={isAdmin} onIp={setIp} />}
       {tab === "exposure" && <Exposure isAdmin={isAdmin} />}

@@ -11,11 +11,11 @@ import urllib.request
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from .. import adguard, audit, geoip, notify, npm, porkbun, publicip, scheduler, server_settings
+from .. import adguard, audit, proxmox, geoip, notify, npm, porkbun, publicip, scheduler, server_settings
 from ..config import settings
 from ..database import get_db
 from ..models import AuditEntry, Invite, User
@@ -137,7 +137,7 @@ class SettingsIn(BaseModel):
 def _settings_payload(db: Session) -> dict:
     return {"fields": server_settings.describe(db), "smtp_ready": notify.smtp_configured(),
             "porkbun_ready": porkbun.configured(), "npm_ready": npm.configured(),
-            "adguard_ready": adguard.configured()}
+            "adguard_ready": adguard.configured(), "proxmox_ready": proxmox.configured()}
 
 
 @router.get("/settings")
@@ -218,6 +218,33 @@ def test_adguard(admin: User = Depends(require_admin)):
     except adguard.AdGuardError as e:
         raise HTTPException(502, str(e))
     return {"ok": True, "version": st["version"], "protection": st["protection"], "queries": stats["queries"]}
+
+
+@router.post("/settings/test-proxmox")
+def test_proxmox(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    try:
+        return proxmox.test()
+    except proxmox.ProxmoxError as e:
+        raise HTTPException(502, str(e))
+
+
+class FingerprintIn(BaseModel):
+    fingerprint: str = Field(..., max_length=120)
+
+
+@router.post("/settings/proxmox-trust")
+def trust_proxmox(data: FingerprintIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Bestätigt den angezeigten Fingerabdruck. Nur wenn der Server ihn gerade wirklich zeigt."""
+    try:
+        current = proxmox.fingerprint()
+    except proxmox.ProxmoxError as e:
+        raise HTTPException(502, str(e))
+    if current.replace(":", "") != data.fingerprint.replace(":", "").upper():
+        raise HTTPException(409, "Der Server zeigt inzwischen einen anderen Fingerabdruck. Bitte erneut testen.")
+    server_settings.save(db, {"proxmox_fingerprint": current})
+    audit.record(db, admin.email, "proxmox.trust", current[:23])
+    scheduler.trigger("proxmox")
+    return {"fingerprint": current}
 
 
 @router.post("/settings/test-npm")

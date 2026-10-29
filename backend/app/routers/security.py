@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .. import appversions, audit, certs, npm, detect, exposure, fail2ban, geoblock, portscan, scheduler, state
+from .. import appversions, audit, certs, npm, proxmox, detect, exposure, fail2ban, geoblock, portscan, scheduler, state
 from ..database import get_db
 from ..models import Agent, ExpectedPort, Exposure, GeoRule, Incident, PortFinding, SiteCheck, User
 from ..security import current_user, require_admin
@@ -419,4 +419,17 @@ def renew_certificate(cert_id: int, admin: User = Depends(require_admin), db: Se
     if not certs.renew_in_background(cert_id, match["name"]):
         raise HTTPException(409, "Die Erneuerung läuft bereits.")
     audit.record(db, admin.email, "cert.renew", match["name"])
+    return {"started": True}
+
+
+@router.get("/proxmox")
+def proxmox_overview(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return {**proxmox.overview(db), "running": scheduler.JOBS["proxmox"].running}
+
+
+@router.post("/proxmox/check", status_code=202)
+def proxmox_check(admin: User = Depends(require_admin)):
+    if not proxmox.configured():
+        raise HTTPException(409, "Proxmox ist nicht eingerichtet")
+    scheduler.trigger("proxmox")
     return {"started": True}

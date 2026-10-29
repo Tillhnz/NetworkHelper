@@ -105,6 +105,42 @@ function TestButton({ label, path, describe }) {
   );
 }
 
+const PVE_CMDS = `pveum user add networkhelper@pve --comment "NetworkHelper (nur lesen)"
+pveum acl modify / --users networkhelper@pve --roles PVEAuditor
+pveum user token add networkhelper@pve monitor --privsep 0`;
+
+function ProxmoxTest({ pinned, onTrusted }) {
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    setBusy(true); setErr(""); setRes(null);
+    try { setRes(await api.post("/admin/settings/test-proxmox", {})); } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function trust() {
+    try { await api.post("/admin/settings/proxmox-trust", { fingerprint: res.fingerprint }); toast("Fingerabdruck bestätigt. Die erste Abfrage läuft."); setRes({ ...res, pinned: true }); onTrusted(); } catch (e) { toast(e.message, "error"); }
+  }
+  return (
+    <div className="pve-test">
+      <button type="button" className="btn" onClick={run} disabled={busy}>{busy ? "Teste …" : "Verbindung testen"}</button>
+      {err && <p className="error small" role="status">{err}</p>}
+      {res && (
+        <div className="small">
+          <p className="ok">Verbunden mit Proxmox VE {res.version}.</p>
+          {res.too_many_rights.length > 0 && <p className="tone-warn">Das Token darf mehr als nötig ({res.too_many_rights.join(", ")}). Für NetworkHelper reicht die Rolle PVEAuditor.</p>}
+          {res.pinned ? <p className="muted">Zertifikat bestätigt: <span className="mono">{res.fingerprint.slice(0, 23)}…</span></p> : (
+            <>
+              <p>{pinned ? <strong className="tone-warn">Das Zertifikat ist ein anderes als das bestätigte.</strong> : "Bitte den Fingerabdruck des Zertifikats bestätigen."} Vergleiche ihn mit Proxmox → Knoten → System → Zertifikate (pve-ssl.pem bzw. pveproxy-ssl.pem):</p>
+              <p className="mono fp">{res.fingerprint}</p>
+              <button type="button" className="btn primary small" onClick={trust}>Stimmt, vertrauen</button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Accounts() {
   const [users, setUsers] = useState([]);
   const [error, setError] = useState("");
@@ -385,6 +421,11 @@ const ADGUARD = [
   { key: "adguard_user", type: "text", label: "Benutzername" },
   { key: "adguard_password", type: "text", secret: true, label: "Passwort" },
 ];
+const PROXMOX = [
+  { key: "proxmox_url", type: "text", label: "Adresse", wide: true, placeholder: "https://192.168.178.2:8006" },
+  { key: "proxmox_token_id", type: "text", label: "Token-ID", placeholder: "networkhelper@pve!monitor" },
+  { key: "proxmox_token_secret", type: "text", secret: true, label: "Token-Geheimnis", hint: "Die lange Zeichenkette (UUID), die Proxmox beim Anlegen einmal anzeigt." },
+];
 const NPM = [
   { key: "npm_url", type: "text", label: "Adresse der Verwaltung", wide: true, placeholder: "http://192.168.1.10:81", hint: "Die Adminoberfläche des Proxy Managers, meist Port 81." },
   { key: "npm_email", type: "text", label: "E-Mail des Kontos" },
@@ -413,7 +454,7 @@ const SECURITY = [
   { key: "auto_block_hours", type: "number", label: "Automatische Sperre gilt (Stunden)", min: 1, max: 8760 },
 ];
 
-const TABS = [["overview", "Übersicht"], ["accounts", "Konten"], ["general", "Allgemein"], ["email", "E-Mail"], ["dns", "DNS"], ["npm", "Proxy Manager"], ["security", "Sicherheit"], ["log", "Protokoll"]];
+const TABS = [["overview", "Übersicht"], ["accounts", "Konten"], ["general", "Allgemein"], ["email", "E-Mail"], ["dns", "DNS"], ["npm", "Proxy Manager"], ["proxmox", "Proxmox"], ["security", "Sicherheit"], ["log", "Protokoll"]];
 
 export default function Admin({ user }) {
   const [params, setParams] = useSearchParams();
@@ -470,6 +511,14 @@ export default function Admin({ user }) {
             extra: data.npm_ready && <TestButton label="Verbindung testen" path="/admin/settings/test-npm" describe={(r) => `OK, ${r.hosts} Proxy Hosts mit ${r.domains} Domains.`} />,
           })}
           {tab === "security" && block({ title: "Sicherheitsüberwachung", spec: SECURITY })}
+          {tab === "proxmox" && block({
+            title: "Proxmox VE (nur lesen)",
+            intro: <>NetworkHelper sieht sich Container, VMs, Sicherungen, Updates und Konten an. Das Token bekommt nur die Rolle <strong>PVEAuditor</strong>: Es kann nichts starten, stoppen oder ändern. Lege es einmalig in der Shell des Proxmox-Hosts an:
+              <pre className="code-block">{PVE_CMDS}</pre>
+              Die Ausgabe zeigt <code>full-tokenid</code> (Token-ID) und <code>value</code> (Geheimnis). Den Agenten kannst du zusätzlich auf dem Host installieren (ohne <code>--enforce-blocks</code>): Dann meldet er auch Anmeldungen und veränderte Systemdateien.</>,
+            spec: PROXMOX,
+            extra: data.proxmox_ready && <ProxmoxTest pinned={!!defs.proxmox_fingerprint?.value} onTrusted={load} />,
+          })}
         </>
       )}
     </>

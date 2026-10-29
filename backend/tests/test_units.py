@@ -408,3 +408,55 @@ def test_adguard_parsing_and_alerts(monkeypatch):
     sug = adguard.suggestions([{"domain": "c.other.de", "answer": "192.168.1.7"}])
     assert sug["ip"] == "192.168.1.5" and sug["items"] == ["a.example.de", "b.example.de"]
     assert sug["wildcards"] == ["*.example.de"] and sug["wrong"][0]["domain"] == "c.other.de"
+
+
+def _fake_pve(monkeypatch, users=None, guests_status="running"):
+    import time
+    from app import proxmox
+    from app.config import settings
+    monkeypatch.setattr(settings, "proxmox_url", "https://192.168.1.2:8006")
+    monkeypatch.setattr(settings, "proxmox_token_id", "networkhelper@pve!monitor")
+    monkeypatch.setattr(settings, "proxmox_token_secret", "x")
+    monkeypatch.setattr(proxmox, "_check_fp", lambda: None)
+    now = int(time.time())
+    routes = {
+        "/version": {"version": "8.4.1"},
+        "/nodes": [{"node": "pve", "status": "online", "uptime": 1000}],
+        "/cluster/resources?type=vm": [
+            {"vmid": 101, "name": "npm", "type": "lxc", "node": "pve", "status": "running"},
+            {"vmid": 102, "name": "docker", "type": "lxc", "node": "pve", "status": guests_status},
+            {"vmid": 200, "name": "ha", "type": "qemu", "node": "pve", "status": "running"}],
+        "/access/users?full=1": users or [{"userid": "root@pam", "enable": 1}],
+        "/access/tfa": [],
+        "/cluster/firewall/options": {"enable": 0},
+        "/cluster/backup": [{"id": "daily"}],
+        "/nodes/pve/apt/update": [{"Package": "openssl", "Origin": "Debian-Security", "Section": "utils"}],
+        "/nodes/pve/status": {"pveversion": "pve-manager/8.4.1/abc"},
+        "/nodes/pve/storage?content=backup&enabled=1": [{"storage": "backup"}],
+        "/nodes/pve/storage/backup/content?content=backup": [{"vmid": 101, "ctime": now - 3600}, {"vmid": 200, "ctime": now - 20 * 86400}],
+        "/nodes/pve/lxc/101/config": {"unprivileged": 1, "onboot": 1},
+        "/nodes/pve/lxc/102/config": {"features": "nesting=1", "onboot": 1, "mp0": "/mnt/data,mp=/data"},
+        "/nodes/pve/qemu/200/config": {"agent": "1"},
+    }
+    monkeypatch.setattr(proxmox, "_get", lambda c, path: routes.get(path))
+    return proxmox
+
+
+def test_proxmox_checks_and_alerts(monkeypatch):
+    from app.models import Alert
+    pve = _fake_pve(monkeypatch)
+    snap = pve.collect()
+    g = {x["vmid"]: x for x in snap["guests"]}
+    assert g[101]["checks"] == []
+    assert g[102]["checks"][0]["level"] == "crit" and "Nesting" in g[102]["checks"][0]["text"]
+    assert any("Keine Sicherung" in c["text"] for c in g[102]["checks"])
+    assert any("vor 20 Tagen" in c["text"] for c in g[200]["checks"])
+    texts = " ".join(c["text"] for c in snap["host_checks"])
+    assert "root@pam" in texts and "openssl" in texts
+    db = _db_with_ip()
+    pve.run(db)
+    assert db.query(Alert).filter(Alert.kind == "proxmox", Alert.severity == "crit").count() == 1  # privilegiert + Nesting
+    pve = _fake_pve(monkeypatch, users=[{"userid": "root@pam", "enable": 1}, {"userid": "hacker@pve", "enable": 1}], guests_status="stopped")
+    pve.run(db)
+    titles = [a.title for a in db.query(Alert).filter(Alert.kind == "proxmox")]
+    assert "Neues Proxmox-Konto: hacker@pve" in titles and any("docker" in t and "läuft nicht" in t for t in titles)

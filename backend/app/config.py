@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     two_factor_required: bool = False
     frame_ancestors: str = ""  # Adressen, die NetworkHelper einbetten dürfen (z. B. Home Assistant), mit Leerzeichen getrennt
     cookie_samesite: str = "strict"  # strict | lax | none (none nur für Einbettung unter fremder Domain, braucht HTTPS)  # alle Konten müssen die Zwei-Faktor-Anmeldung einrichten
+    proxmox_url: str = ""  # z. B. https://192.168.178.2:8006
+    proxmox_token_id: str = ""  # networkhelper@pve!monitor
+    proxmox_token_secret: str = ""
+    proxmox_fingerprint: str = ""  # SHA-256 des Zertifikats, beim Test bestätigt
     adguard_url: str = ""  # z. B. http://192.168.178.53 (Weboberfläche von AdGuard Home)
     adguard_user: str = ""
     adguard_password: str = ""

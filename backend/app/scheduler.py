@@ -10,7 +10,7 @@ from typing import Callable
 
 from sqlalchemy import delete, select
 
-from . import adguard, appversions, certs, detect, dns, domainguard, exposure, geoblock, report, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
+from . import adguard, appversions, certs, proxmox, detect, dns, domainguard, exposure, geoblock, report, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
 from .config import settings
 from .database import SessionLocal
 from .models import AccessEvent, Agent, Alert, DynRecord, Incident, MonitorResult
@@ -86,6 +86,7 @@ FAST = [
 SLOW = [
     Job("npm_sync", dns.sync_from_npm, lambda: 600, npm.configured, delay=40),
     Job("dyndns", dns.run_dyndns, lambda: settings.dyndns_interval_min * 60, _dyndns_enabled, delay=60),
+    Job("proxmox", proxmox.run, lambda: 1800, lambda: proxmox.configured() and bool(settings.proxmox_fingerprint), delay=100),
     Job("certs", certs.run, lambda: 6 * 3600, lambda: settings.cert_auto_renew and npm.configured(), delay=200),
     Job("sitecheck", sitecheck.run, lambda: settings.site_check_interval_h * 3600, delay=120),
     Job("domainguard", domainguard.run, lambda: 24 * 3600, porkbun.configured, delay=150),

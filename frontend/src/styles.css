@@ -1086,3 +1086,10 @@ ul.bullet li{margin:.3rem 0}
 .suggest{border:1px dashed var(--celeste);border-radius:var(--r-panel);padding:.6rem 1rem;margin:.8rem 0}
 .suggest p{margin:.2rem 0 .5rem}
 .suggest li{display:flex;gap:.75rem;align-items:center;padding:.3rem 0}
+.pve-guests>li{border-bottom:1px solid var(--line)}
+.pve-guests>li:last-child{border-bottom:0}
+.pve-row{display:flex;gap:.75rem;align-items:center;width:100%;background:none;border:0;color:inherit;text-align:left;padding:.7rem 0;cursor:pointer;font:inherit}
+.pve-detail{padding:0 0 .8rem 1.5rem}
+.pve-check{display:flex;gap:.6rem;align-items:flex-start;padding:.35rem 0}
+.pve-test{display:grid;gap:.5rem;justify-items:start}
+.pve-test .fp{word-break:break-all;background:var(--ink);padding:.4rem .6rem;border-radius:6px}
