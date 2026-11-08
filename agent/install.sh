@@ -13,13 +13,17 @@
 #   --insecure          Selbst signiertes Zertifikat von NetworkHelper akzeptieren
 #   --fail2ban          fail2ban installieren und einrichten (SSH, Proxy Manager, Proxmox; Heimnetz und eigene IP ausgenommen)
 #   --no-fail2ban       Die NetworkHelper-Regeln aus fail2ban wieder entfernen
+#   --no-inventory      Keine Inventur der installierten Pakete (Lückenwächter) und kein Syft
 #   --uninstall         Agent entfernen
 set -euo pipefail
 
 DIR=/opt/networkhelper-agent
 CONF=/etc/networkhelper-agent.json
 UNIT=/etc/systemd/system/networkhelper-agent.service
-SERVER="" TOKEN="" ENFORCE="" LOGS="" INSECURE="" UNINSTALL="" FAIL2BAN=""
+SERVER="" TOKEN="" ENFORCE="" LOGS="" INSECURE="" UNINSTALL="" FAIL2BAN="" INVENTORY=""
+SYFT_VERSION=1.55.0
+SYFT_SHA_amd64=bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+SYFT_SHA_arm64=929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304
 
 info() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✔\033[0m %s\n' "$*"; }
@@ -36,6 +40,8 @@ while [ $# -gt 0 ]; do
     --insecure) INSECURE=true; shift ;;
     --fail2ban) FAIL2BAN=true; shift ;;
     --no-fail2ban) FAIL2BAN=false; shift ;;
+    --inventory) INVENTORY=true; shift ;;
+    --no-inventory) INVENTORY=false; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
     *) die "Unbekannte Option: $1" ;;
   esac
@@ -48,7 +54,7 @@ if [ -n "$UNINSTALL" ]; then
   [ -f "$DIR/nh-agent.py" ] && python3 "$DIR/nh-agent.py" --remove-fail2ban >/dev/null 2>&1 || true
   systemctl disable --now networkhelper-agent 2>/dev/null || true
   rm -f "$UNIT" "$CONF"
-  rm -rf "$DIR" /var/lib/networkhelper-agent
+  rm -rf "$DIR" /var/lib/networkhelper-agent /usr/local/lib/networkhelper-agent
   systemctl daemon-reload
   ok "Agent entfernt. Eine eingebundene Sperrliste im Proxy Manager (server_proxy.conf) bitte von Hand entfernen."
   exit 0
@@ -82,6 +88,41 @@ curl "${curl_opts[@]}" "$SERVER/api/agent/files/nh-agent.py" -o "$DIR/nh-agent.p
 python3 -m py_compile "$DIR/nh-agent.py.new" || die "Die geladene Datei ist kein gültiges Python."
 mv "$DIR/nh-agent.py.new" "$DIR/nh-agent.py"
 chmod 755 "$DIR/nh-agent.py"
+
+# ---------- Syft für die Inventur (Lückenwächter) ----------
+if [ -z "$INVENTORY" ]; then
+  INVENTORY=true
+  [ -f "$CONF" ] && INVENTORY="$(python3 -c "import json;print(str(json.load(open('$CONF')).get('inventory', True)).lower())")"
+fi
+SYFT=/usr/local/lib/networkhelper-agent/syft
+if [ "$INVENTORY" = true ]; then
+  case "$(uname -m)" in
+    x86_64|amd64) ARCH=amd64 ;;
+    aarch64|arm64) ARCH=arm64 ;;
+    *) ARCH="" ;;
+  esac
+  if [ -z "$ARCH" ]; then
+    warn "Syft gibt es für $(uname -m) nicht. Die Inventur meldet nur Systempakete."
+  elif [ -x "$SYFT" ] && "$SYFT" version 2>/dev/null | grep -q "$SYFT_VERSION"; then
+    ok "Syft $SYFT_VERSION ist schon installiert."
+  else
+    info "Lade Syft $SYFT_VERSION (liest aus, welche Pakete in deinen Containern stecken) …"
+    tmp="$(mktemp -d)"
+    if curl -fsSL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_${ARCH}.tar.gz" -o "$tmp/syft.tgz"; then
+      want="SYFT_SHA_$ARCH"
+      if echo "${!want}  $tmp/syft.tgz" | sha256sum -c --status; then
+        mkdir -p "$(dirname "$SYFT")"
+        tar -xzf "$tmp/syft.tgz" -C "$tmp" syft && install -m 755 "$tmp/syft" "$SYFT"
+        ok "Syft installiert."
+      else
+        warn "Prüfsumme von Syft stimmt nicht, verwende es nicht."
+      fi
+    else
+      warn "Syft ließ sich nicht laden (GitHub erreichbar?). Die Inventur meldet nur Systempakete."
+    fi
+    rm -rf "$tmp"
+  fi
+fi
 
 # ---------- Nginx Proxy Manager finden ----------
 NPM_DIR="" NPM_CONTAINER=""
@@ -123,7 +164,7 @@ fi
 
 # ---------- Konfiguration ----------
 umask 077
-SERVER="$SERVER" TOKEN="$TOKEN" GLOBS="$GLOBS" ENFORCE="$ENFORCE" NPM_DIR="$NPM_DIR" NPM_CONTAINER="$NPM_CONTAINER" INSECURE="${INSECURE:-false}" CONF="$CONF" python3 - <<'PY'
+INVENTORY="$INVENTORY" SERVER="$SERVER" TOKEN="$TOKEN" GLOBS="$GLOBS" ENFORCE="$ENFORCE" NPM_DIR="$NPM_DIR" NPM_CONTAINER="$NPM_CONTAINER" INSECURE="${INSECURE:-false}" CONF="$CONF" python3 - <<'PY'
 import json, os
 conf = os.environ["CONF"]
 cfg = {}
@@ -138,6 +179,7 @@ cfg.update({
     "enforce_blocks": os.environ["ENFORCE"] == "true",
     "npm_data_dir": os.environ["NPM_DIR"], "npm_container": os.environ["NPM_CONTAINER"],
     "insecure": os.environ["INSECURE"] == "true",
+    "inventory": os.environ["INVENTORY"] == "true",
 })
 with open(conf, "w") as f:
     json.dump(cfg, f, indent=2)
@@ -179,4 +221,5 @@ fi
 echo
 echo "Sperrliste im Proxy Manager: $([ "$ENFORCE" = true ] && echo an || echo aus)  (ändern: Befehl erneut mit --enforce-blocks oder --no-enforce-blocks)"
 echo "fail2ban:                    $(command -v fail2ban-client >/dev/null 2>&1 && echo installiert || echo nicht installiert)  (einrichten: Befehl erneut mit --fail2ban)"
+echo "Inventur (Lückenwächter):    $([ "$INVENTORY" = true ] && echo "an$([ -x "$SYFT" ] && echo ', mit Syft' || echo ', nur Systempakete')" || echo aus)  (ausschalten: --no-inventory)"
 echo "Protokoll des Agenten:       journalctl -u networkhelper-agent -f"

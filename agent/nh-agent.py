@@ -26,11 +26,12 @@ import socket
 import ssl
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 CONFIG = os.environ.get("NH_AGENT_CONFIG", "/etc/networkhelper-agent.json")
 STATE_DIR = os.environ.get("NH_AGENT_STATE", "/var/lib/networkhelper-agent")
 DEFAULTS = {
@@ -47,6 +48,9 @@ DEFAULTS = {
     "watch": True,            # Anmeldungen, Benutzer und wichtige Dateien beobachten
     "watch_interval": 300,
     "auto_update": True,      # neuere Agent-Version von NetworkHelper übernehmen
+    "inventory": True,        # installierte Pakete melden (für den Lückenwächter)
+    "inventory_hours": 24,
+    "syft": "",               # Pfad zu syft, leer = automatisch suchen
 }
 BLOCK_FILE = "networkhelper_blocklist.conf"
 INCLUDE_LINE = "include /data/nginx/custom/%s; # NetworkHelper-Sperrliste" % BLOCK_FILE
@@ -282,6 +286,217 @@ def system_info():
         except (OSError, subprocess.SubprocessError):
             pass
     return info
+
+
+# ---------- Inventur: was ist installiert? (für den Lückenwächter) ----------
+
+SYFT_VERSION = "1.55.0"
+SYFT_SHA = {"amd64": "bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d",
+            "arm64": "929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304"}
+SYFT_PATHS = ["/usr/local/lib/networkhelper-agent/syft", "/usr/local/bin/syft", "/usr/bin/syft"]
+HOST_DIRS = ["/usr/local", "/opt", "/srv", "/root", "/home"]
+NICE = ["nice", "-n", "19"] + (["ionice", "-c", "3"] if shutil.which("ionice") else [])
+
+
+def os_release(root=""):
+    data = {}
+    try:
+        with open(root + "/etc/os-release", encoding="utf-8") as f:
+            for line in f:
+                k, _, v = line.strip().partition("=")
+                data[k] = v.strip('"')
+    except OSError:
+        pass
+    return "%s:%s" % (data.get("ID", ""), data.get("VERSION_ID", "")) if data.get("ID") else ""
+
+
+def syft_rows(doc):
+    """Wandelt die Syft-Ausgabe in kompakte Zeilen [typ, name, version, purl] (Systempakete: Quellpaket)."""
+    rows, seen = [], set()
+    for a in doc.get("artifacts") or []:
+        typ, name, version = a.get("type", ""), a.get("name", ""), a.get("version", "")
+        meta = a.get("metadata") or {}
+        if typ == "deb" and meta.get("source"):
+            name, version = meta["source"], meta.get("sourceVersion") or version
+        elif typ == "apk" and meta.get("originPackage"):
+            name = meta["originPackage"]
+        if not name or not version:
+            continue
+        purl = a.get("purl", "") if typ == "java-archive" else ""
+        key = (typ, name, version)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append([typ, name, version, purl] if purl else [typ, name, version])
+    d = doc.get("distro") or {}
+    distro = "%s:%s" % (d.get("id"), d.get("versionID")) if d.get("id") and d.get("versionID") else ""
+    return rows, distro
+
+
+def run_syft(syft, source, extra=()):
+    out = subprocess.run(NICE + [syft, source, "-o", "json", "-q"] + list(extra), capture_output=True, text=True, timeout=900)
+    if out.returncode != 0:
+        raise RuntimeError((out.stderr or "syft fehlgeschlagen").strip().splitlines()[-1][:200])
+    return syft_rows(json.loads(out.stdout or "{}"))
+
+
+def system_packages():
+    """Ohne Syft: Paketliste des Systems (dpkg oder apk)."""
+    rows = []
+    if shutil.which("dpkg-query"):
+        out = subprocess.run(["dpkg-query", "-W", "-f", "${source:Package}\t${source:Version}\t${db:Status-Abbrev}\n"],
+                             capture_output=True, text=True, timeout=60).stdout
+        seen = set()
+        for line in out.splitlines():
+            p = line.split("\t")
+            if len(p) >= 3 and p[2].startswith("ii") and (p[0], p[1]) not in seen:
+                seen.add((p[0], p[1]))
+                rows.append(["deb", p[0], p[1]])
+    elif shutil.which("apk"):
+        out = subprocess.run(["apk", "list", "-I"], capture_output=True, text=True, timeout=60).stdout
+        seen = set()
+        for line in out.splitlines():
+            m = re.match(r"^(\S+)-(\d\S*-r\d+) \S+ \{([^}]+)\}", line)
+            if m and (m.group(3), m.group(2)) not in seen:
+                seen.add((m.group(3), m.group(2)))
+                rows.append(["apk", m.group(3), m.group(2)])
+    return rows
+
+
+def running_containers():
+    """{image_id: {"image": name, "containers": [{name, ports}]}} der laufenden Docker-Container."""
+    if not shutil.which("docker"):
+        return {}
+    try:
+        ps = subprocess.run(["docker", "ps", "--no-trunc", "--format", "{{.ID}}\t{{.Names}}\t{{.Ports}}"],
+                            capture_output=True, text=True, timeout=20).stdout
+        rows = [l.split("\t") for l in ps.splitlines() if l.strip()]
+        if not rows:
+            return {}
+        ins = subprocess.run(["docker", "inspect", "--format", "{{.Id}}\t{{.Image}}\t{{.Config.Image}}"] + [r[0] for r in rows],
+                             capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    meta = {}
+    for line in ins.splitlines():
+        p = line.split("\t")
+        if len(p) == 3:
+            meta[p[0]] = (p[1], p[2])
+    out = {}
+    for r in rows:
+        if r[0] not in meta:
+            continue
+        image_id, image = meta[r[0]]
+        e = out.setdefault(image_id, {"image": image, "containers": []})
+        e["containers"].append({"name": r[1], "ports": r[2] if len(r) > 2 else ""})
+    return out
+
+
+def install_syft():
+    """Lädt Syft (feste Version, Prüfsumme fest eingetragen), falls es fehlt. Gibt den Pfad zurück oder None."""
+    import io
+    import tarfile
+    arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine())
+    if not arch:
+        return None
+    url = "https://github.com/anchore/syft/releases/download/v%s/syft_%s_linux_%s.tar.gz" % (SYFT_VERSION, SYFT_VERSION, arch)
+    with urllib.request.urlopen(url, timeout=120) as r:
+        data = r.read()
+    if hashlib.sha256(data).hexdigest() != SYFT_SHA[arch]:
+        raise RuntimeError("Prüfsumme von Syft stimmt nicht")
+    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+        member = tar.getmember("syft")
+        binary = tar.extractfile(member).read()
+    path = SYFT_PATHS[0]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".new", "wb") as f:
+        f.write(binary)
+    os.chmod(path + ".new", 0o755)
+    os.replace(path + ".new", path)
+    log("Syft %s installiert (für die Inventur)" % SYFT_VERSION)
+    return path
+
+
+class Inventory(threading.Thread):
+    """Läuft im Hintergrund: einmal am Tag und sobald ein Container mit neuem Image startet."""
+
+    def __init__(self, cfg, api):
+        super().__init__(daemon=True, name="inventur")
+        self.cfg, self.api = cfg, api
+        self.syft = cfg.get("syft") or next((p for p in SYFT_PATHS if os.access(p, os.X_OK)), None) or shutil.which("syft")
+        self.cache = {}  # image_id -> (zeit, zeilen, distro, fehler)
+        self.last_full = 0.0
+        self.last_sig = None
+
+    def scan_image(self, image_id):
+        hit = self.cache.get(image_id)
+        if hit and time.time() - hit[0] < float(self.cfg.get("inventory_hours") or 24) * 3600:
+            return hit[1:]
+        try:
+            rows, distro = run_syft(self.syft, "docker:" + image_id)
+            res = (rows, distro, None)
+        except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as e:
+            res = (None, "", str(e)[:200])
+        self.cache[image_id] = (time.time(),) + res
+        return res
+
+    def scan_host(self):
+        rows = system_packages()
+        err = None
+        if self.syft:
+            seen = {tuple(r[:3]) for r in rows}
+            for d in HOST_DIRS:
+                if not os.path.isdir(d):
+                    continue
+                try:
+                    extra, _ = run_syft(self.syft, "dir:" + d, ["--override-default-catalogers", "image",
+                                                                "--exclude", "./**/.cache/**", "--exclude", "./**/docker/**"])
+                except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as e:
+                    err = "%s: %s" % (d, e)
+                    continue
+                for r in extra:
+                    if r[0] not in ("deb", "apk", "rpm") and tuple(r[:3]) not in seen:
+                        seen.add(tuple(r[:3]))
+                        rows.append(r)
+        return rows, err
+
+    def collect(self):
+        targets = []
+        rows, err = self.scan_host()
+        targets.append({"key": "host", "distro": os_release(), "packages": rows, "error": err,
+                        "scanner": ("syft " if self.syft else "") + ("dpkg" if shutil.which("dpkg-query") else "apk")})
+        for image_id, info in running_containers().items():
+            t = {"key": "image:" + image_id.replace("sha256:", "")[:64], "image": info["image"], "containers": info["containers"]}
+            if self.syft:
+                rows, distro, err = self.scan_image(image_id)
+                t.update({"packages": rows, "distro": distro, "error": err, "scanner": "syft"})
+            else:
+                t.update({"packages": None, "error": "syft fehlt: Agent mit --inventory neu installieren"})
+            targets.append(t)
+        return targets
+
+    def signature(self):
+        return sorted(running_containers())
+
+    def run(self):
+        time.sleep(90)
+        if not self.syft:
+            try:
+                self.syft = install_syft()
+            except Exception as e:  # noqa: BLE001
+                log("Syft ließ sich nicht installieren (%s), melde nur Systempakete" % e)
+        while True:
+            try:
+                sig = self.signature()
+                due = time.time() - self.last_full > float(self.cfg.get("inventory_hours") or 24) * 3600
+                if due or sig != self.last_sig:
+                    targets = self.collect()
+                    self.api.post("/inventory", {"targets": targets, "complete": True, "syft": bool(self.syft)}, timeout=180)
+                    self.last_full, self.last_sig = time.time(), sig
+                    log("Inventur gemeldet: %d Ziele, %d Pakete" % (len(targets), sum(len(t.get("packages") or []) for t in targets)))
+            except Exception as e:  # noqa: BLE001 - die Inventur darf den Agenten nie stoppen
+                log("Inventur fehlgeschlagen: %s" % e)
+            time.sleep(600)
 
 
 # ---------- Wachsamkeit: Anmeldungen, Benutzer, wichtige Dateien ----------
@@ -749,6 +964,8 @@ def main():
     blocker = Blocker(cfg)
     auth = AuthWatcher()
     f2b = Fail2banSync(cfg)
+    if cfg.get("inventory", True):
+        Inventory(cfg, api).start()
     next_watch = time.time() + 20
     interval = max(10, int(cfg.get("interval") or 30))
     log("NetworkHelper-Agent %s startet, Server %s, %d Protokolldateien" % (VERSION, cfg["server"], len(tailer.files())))
@@ -815,6 +1032,14 @@ if __name__ == "__main__":
         except Exception:  # noqa: BLE001
             c["own_ips"] = []
         sys.exit(setup_fail2ban(c, remove=sys.argv[1] == "--remove-fail2ban"))
+    if len(sys.argv) > 1 and sys.argv[1] == "--inventory-now":
+        c = load_config()
+        inv = Inventory(c, Api(c))
+        tg = inv.collect()
+        print(json.dumps([{k: (len(v) if k == "packages" and v else v) for k, v in t.items()} for t in tg], indent=2))
+        if "--send" in sys.argv:
+            print(Api(c).post("/inventory", {"targets": tg, "complete": True, "syft": bool(inv.syft)}, timeout=180))
+        sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "--version":
         print(VERSION)
         sys.exit(0)

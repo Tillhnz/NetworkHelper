@@ -46,12 +46,12 @@ def _login() -> str:
         return tok
 
 
-def _api(method: str, path: str, params: dict | None = None, timeout: float = 20) -> object:
+def _api(method: str, path: str, params: dict | None = None, timeout: float = 20, json: dict | None = None) -> object:
     if not configured():
         raise NpmError("Der Proxy Manager ist nicht eingerichtet (Administration → Proxy Manager).")
     tok = _login()
     try:
-        r = httpx.request(method, settings.npm_url.rstrip("/") + path, params=params,
+        r = httpx.request(method, settings.npm_url.rstrip("/") + path, params=params, json=json,
                           headers={"Authorization": f"Bearer {tok}"}, timeout=timeout)
     except httpx.HTTPError as e:
         raise NpmError(f"Proxy Manager nicht erreichbar ({e.__class__.__name__})")
@@ -59,8 +59,9 @@ def _api(method: str, path: str, params: dict | None = None, timeout: float = 20
         _token["value"] = None
         raise NpmError("Die Anmeldung am Proxy Manager ist abgelaufen, bitte erneut versuchen.")
     if r.status_code == 403:
-        raise NpmError("Das Konto im Proxy Manager darf das nicht. Für das Erneuern von Zertifikaten braucht es bei "
-                       "„Zertifikate“ das Recht „Verwalten“ (Proxy Manager → Benutzer → Berechtigungen).")
+        what = ("Zertifikate" if "certificates" in path else "Zugriffslisten" if "access-lists" in path else "Proxy Hosts")
+        raise NpmError(f"Das Konto im Proxy Manager darf das nicht. Es braucht bei „{what}“ das Recht „Verwalten“ "
+                       "(Proxy Manager → Benutzer → Berechtigungen).")
     try:
         data = r.json()
     except ValueError:
@@ -84,6 +85,7 @@ def raw_proxy_hosts() -> list[dict]:
             "nginx_err": meta.get("nginx_err"), "certificate_id": h.get("certificate_id") or None,
             "cert_expires": cert.get("expires_on"), "cert_name": cert.get("nice_name"),
             "ssl_forced": bool(h.get("ssl_forced")), "access_list": bool(h.get("access_list_id")),
+            "access_list_id": int(h.get("access_list_id") or 0),
             "websockets": bool(h.get("allow_websocket_upgrade")),
         })
     return out
@@ -116,6 +118,27 @@ def certificates() -> list[dict]:
 def renew_certificate(cert_id: int) -> dict:
     """Erneuert ein Let's-Encrypt-Zertifikat (kann bis zu zwei Minuten dauern)."""
     return _api("POST", f"/api/nginx/certificates/{int(cert_id)}/renew", timeout=180) or {}
+
+
+QUARANTINE_LIST = "NetworkHelper: nur Heimnetz"
+
+
+def quarantine_list(allow: list[str]) -> int:
+    """Legt die Zugriffsliste „nur Heimnetz“ an bzw. aktualisiert sie und gibt ihre ID zurück."""
+    body = {"name": QUARANTINE_LIST, "satisfy_any": False, "pass_auth": False, "items": [],
+            "clients": [{"address": a, "directive": "allow"} for a in allow] + [{"address": "all", "directive": "deny"}]}
+    existing = next((a for a in _api("GET", "/api/nginx/access-lists", {"expand": "clients"}) or []
+                     if a.get("name") == QUARANTINE_LIST), None)
+    if existing:
+        have = sorted(c.get("address") for c in existing.get("clients") or [] if c.get("directive") == "allow")
+        if have != sorted(allow):
+            _api("PUT", f"/api/nginx/access-lists/{existing['id']}", json=body)
+        return int(existing["id"])
+    return int((_api("POST", "/api/nginx/access-lists", json=body) or {})["id"])
+
+
+def set_access_list(host_id: int, access_list_id: int) -> None:
+    _api("PUT", f"/api/nginx/proxy-hosts/{int(host_id)}", json={"access_list_id": int(access_list_id)})
 
 
 def proxy_hosts() -> list[dict]:

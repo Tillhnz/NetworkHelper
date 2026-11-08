@@ -10,12 +10,13 @@ import urllib.error
 import urllib.request
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from .. import adguard, audit, proxmox, geoip, notify, npm, porkbun, publicip, scheduler, server_settings
+from .. import adguard, audit, geoip, notify, npm, porkbun, proxmox, publicip, scheduler, server_settings
 from ..config import settings
 from ..database import get_db
 from ..models import AuditEntry, Invite, User
@@ -218,6 +219,17 @@ def test_adguard(admin: User = Depends(require_admin)):
     except adguard.AdGuardError as e:
         raise HTTPException(502, str(e))
     return {"ok": True, "version": st["version"], "protection": st["protection"], "queries": stats["queries"]}
+
+
+@router.post("/settings/test-push")
+def test_push(admin: User = Depends(require_admin)):
+    if not notify.push_configured():
+        raise HTTPException(409, "Bitte zuerst ein ntfy-Thema eintragen und speichern.")
+    try:
+        notify.push("NetworkHelper: Test", "Wenn du das liest, kommen Warnungen auf dein Handy.", "warn")
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"ntfy: {e}")
+    return {"ok": True}
 
 
 @router.post("/settings/test-proxmox")

@@ -435,6 +435,18 @@ const NPM = [
   { key: "cert_auto_renew_days", type: "number", label: "Erneuern, wenn weniger als so viele Tage übrig sind", min: 1, max: 60 },
   { key: "npm_auto_dns", type: "bool", label: "Fehlende DNS-Records bei Porkbun automatisch anlegen", hint: "Sobald du im Proxy Manager einen Host für eine deiner Domains anlegst, entsteht der Record innerhalb von 10 Minuten." },
 ];
+const PUSH = [
+  { key: "ntfy_topic", type: "text", label: "Thema (Topic)", placeholder: "z. B. nh-till-7k3q9x", hint: "Ein langer, schwer zu erratender Name. Genau diesen Namen abonnierst du in der ntfy-App. Wer ihn kennt, kann deine Meldungen lesen, deshalb kein einfaches Wort." },
+  { key: "ntfy_url", type: "text", label: "ntfy-Server", placeholder: "https://ntfy.sh", hint: "ntfy.sh ist kostenlos. Hast du einen eigenen ntfy-Server, trag ihn hier ein." },
+  { key: "ntfy_token", type: "text", secret: true, label: "Zugangstoken (optional)", hint: "Nur für geschützte Themen oder einen eigenen Server mit Anmeldung (tk_…)." },
+  { key: "ntfy_min_level", type: "select", label: "Pushen ab", options: [["info", "Hinweis (alles)"], ["warn", "Warnung"], ["crit", "Nur kritisch"]] },
+];
+const VULN = [
+  { key: "vuln_watch", type: "bool", label: "Pakete der Dienste auf neue Sicherheitslücken prüfen", hint: "Die Agenten melden, was in deinen Containern installiert ist. NetworkHelper gleicht das alle zwei Stunden mit OSV.dev und der Liste aktiv ausgenutzter Lücken ab. Gesendet werden nur Paketnamen und Versionen." },
+  { key: "vuln_auto_quarantine", type: "bool", label: "Betroffene Dienste automatisch sperren", hint: "Bei einer kritischen oder bereits ausgenutzten Lücke ist der Dienst danach nur noch aus dem Heimnetz erreichbar, bis das Paket aktualisiert ist. Das Konto im Proxy Manager braucht dafür bei „Proxy Hosts“ und „Zugriffslisten“ das Recht „Verwalten“." },
+  { key: "vuln_cvss_threshold", type: "number", label: "Automatisch sperren ab Schweregrad (CVSS)", min: 7, max: 10, hint: "9 = nur kritische Lücken. Lücken, die schon ausgenutzt werden, sperren immer." },
+  { key: "vuln_quarantine_exclude", type: "text", label: "Nie automatisch sperren", wide: true, placeholder: "home.example.de", hint: "Domains, die immer erreichbar bleiben müssen. Du bekommst trotzdem die Meldung. NetworkHelper selbst ist immer ausgenommen." },
+];
 const SECURITY = [
   { key: "scan_enabled", type: "bool", label: "Öffentliche IP regelmäßig auf offene Ports prüfen" },
   { key: "scan_interval_h", type: "number", label: "Portscan alle (Stunden)", min: 1, max: 168 },
@@ -454,7 +466,7 @@ const SECURITY = [
   { key: "auto_block_hours", type: "number", label: "Automatische Sperre gilt (Stunden)", min: 1, max: 8760 },
 ];
 
-const TABS = [["overview", "Übersicht"], ["accounts", "Konten"], ["general", "Allgemein"], ["email", "E-Mail"], ["dns", "DNS"], ["npm", "Proxy Manager"], ["proxmox", "Proxmox"], ["security", "Sicherheit"], ["log", "Protokoll"]];
+const TABS = [["overview", "Übersicht"], ["accounts", "Konten"], ["general", "Allgemein"], ["email", "E-Mail & Push"], ["dns", "DNS"], ["npm", "Proxy Manager"], ["proxmox", "Proxmox"], ["security", "Sicherheit"], ["log", "Protokoll"]];
 
 export default function Admin({ user }) {
   const [params, setParams] = useSearchParams();
@@ -491,6 +503,13 @@ export default function Admin({ user }) {
             spec: EMAIL,
             extra: <TestButton label="Testmail an mich" path="/admin/settings/test-email" describe={(r) => `Gesendet an ${r.to}.`} />,
           })}
+          {tab === "email" && block({
+            title: "Push aufs Handy (ntfy)",
+            intro: <>Installiere die App <strong>ntfy</strong> (iPhone und Android, kostenlos), tippe auf „+“ und abonniere das Thema, das du hier einträgst. Kritische Meldungen kommen mit höchster Priorität.</>,
+            spec: PUSH,
+            extra: <TestButton label="Test-Push senden" path="/admin/settings/test-push" describe={() => "Gesendet. Kommt nichts an: Thema in der App genau gleich geschrieben?"} />,
+          })}
+          {tab === "security" && block({ title: "Lückenwächter", spec: VULN })}
           {tab === "email" && block({ title: "Wochenbericht", spec: REPORT, extra: <ReportPreview /> })}
           {tab === "dns" && block({
             title: "Porkbun",

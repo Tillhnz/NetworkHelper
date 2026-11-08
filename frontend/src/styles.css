@@ -1093,3 +1093,12 @@ ul.bullet li{margin:.3rem 0}
 .pve-check{display:flex;gap:.6rem;align-items:flex-start;padding:.35rem 0}
 .pve-test{display:grid;gap:.5rem;justify-items:start}
 .pve-test .fp{word-break:break-all;background:var(--ink);padding:.4rem .6rem;border-radius:6px}
+.vuln{padding:.55rem 0;border-bottom:1px dashed var(--line)}
+.vuln:last-child{border-bottom:0}
+.vuln.acked{opacity:.6}
+.vuln-head{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.vuln p{margin:.25rem 0}
+.vuln-target .svc{display:inline-block;margin-right:.75rem}
+.quarantine{display:flex;gap:.75rem;align-items:flex-start;padding:.6rem 0}
+.pre-line{white-space:pre-line}
+.quarantine .btn{white-space:nowrap}

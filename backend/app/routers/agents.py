@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import accesslog, audit, detect, fail2ban, geoip, hostwatch, ratelimit
+from .. import accesslog, audit, detect, fail2ban, geoip, hostwatch, ratelimit, scheduler, vulns
 from ..config import settings
 from ..database import get_db
 from ..models import Agent, User, WatchEvent
@@ -262,6 +262,18 @@ def agent_watch(data: WatchIn, authorization: str | None = Header(None), db: Ses
     if len(data.files) > 1000 or len(data.failures) > 1000:
         raise HTTPException(413, "Zu viele Einträge")
     return hostwatch.ingest(db, agent, data.model_dump())
+
+
+@router.post("/agent/inventory")
+def agent_inventory(data: dict, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Inventur: was in den laufenden Container-Images und auf dem Server installiert ist."""
+    agent = _agent_from_token(authorization, db)
+    if not isinstance(data.get("targets"), list) or len(data["targets"]) > 200:
+        raise HTTPException(422, "targets fehlt oder zu viele")
+    res = vulns.ingest(db, agent, data)
+    if settings.vuln_watch:
+        scheduler.trigger("vulns")
+    return res
 
 
 # ---------- Wachsamkeit in der Oberfläche ----------

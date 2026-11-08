@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     two_factor_required: bool = False
     frame_ancestors: str = ""  # Adressen, die NetworkHelper einbetten dürfen (z. B. Home Assistant), mit Leerzeichen getrennt
     cookie_samesite: str = "strict"  # strict | lax | none (none nur für Einbettung unter fremder Domain, braucht HTTPS)  # alle Konten müssen die Zwei-Faktor-Anmeldung einrichten
+    ntfy_url: str = "https://ntfy.sh"  # oder eigener ntfy-Server
+    ntfy_topic: str = ""  # Thema, das die ntfy-App abonniert; leer = keine Push-Nachrichten
+    ntfy_token: str = ""  # Zugangstoken (tk_…), nur bei geschütztem Thema/eigenem Server
+    ntfy_min_level: str = "warn"  # ab welcher Stufe gepusht wird: info, warn, crit
+    vuln_watch: bool = True  # Pakete der Dienste mit Lückendatenbanken abgleichen
+    vuln_auto_quarantine: bool = True  # bei kritischen/ausgenutzten Lücken den Dienst nur noch im Heimnetz erreichbar machen
+    vuln_cvss_threshold: int = 9
+    vuln_quarantine_exclude: str = ""  # Domains, die nie automatisch gesperrt werden (Komma)
     proxmox_url: str = ""  # z. B. https://192.168.178.2:8006
     proxmox_token_id: str = ""  # networkhelper@pve!monitor
     proxmox_token_secret: str = ""

@@ -9,9 +9,11 @@ from __future__ import annotations
 import logging
 import smtplib
 import ssl
+import threading
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -42,7 +44,41 @@ def raise_alert(db: Session, severity: str, kind: str, title: str, body: str = "
     db.add(alert)
     if commit:
         db.commit()
+    if push_configured() and RANK.get(severity, 0) >= RANK.get(settings.ntfy_min_level, 1):
+        threading.Thread(target=_push_quiet, args=(severity, kind, title, body), daemon=True).start()
     return alert
+
+
+# ---------- Push über ntfy ----------
+
+PRIORITY = {"info": 3, "warn": 4, "crit": 5}
+TAGS = {"info": ["information_source"], "warn": ["warning"], "crit": ["rotating_light"]}
+LINKS = {"vuln": "/security?tab=vulns", "proxmox": "/security?tab=proxmox", "adguard": "/dns?tab=adguard",
+         "cert": "/security?tab=sites", "uptime": "/uptime"}
+
+
+def push_configured() -> bool:
+    return bool(settings.ntfy_topic)
+
+
+def push(title: str, body: str = "", severity: str = "warn", kind: str = "", actions: list[dict] | None = None) -> None:
+    """Schickt eine Push-Nachricht an die ntfy-App. Wirft httpx.HTTPError bei Fehlern."""
+    link = settings.public_url.rstrip("/") + LINKS.get(kind, "/")
+    payload = {"topic": settings.ntfy_topic, "title": title[:250], "message": (body or title)[:3500],
+               "priority": PRIORITY.get(severity, 3), "tags": TAGS.get(severity, []), "click": link,
+               "actions": actions or [{"action": "view", "label": "Öffnen", "url": link}]}
+    headers = {"Authorization": f"Bearer {settings.ntfy_token}"} if settings.ntfy_token else {}
+    r = httpx.post(settings.ntfy_url.rstrip("/"), json=payload, headers=headers, timeout=15)
+    if r.status_code in (401, 403):
+        raise httpx.HTTPStatusError("ntfy lehnt ab: Zugangstoken fehlt oder darf nicht in dieses Thema schreiben.", request=r.request, response=r)
+    r.raise_for_status()
+
+
+def _push_quiet(severity, kind, title, body):
+    try:
+        push(title, body, severity, kind)
+    except httpx.HTTPError as e:
+        log.warning("Push an ntfy fehlgeschlagen: %s", e)
 
 
 def send_email(to: str | list[str], title: str, body: str) -> None:
