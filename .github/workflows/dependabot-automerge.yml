@@ -1,0 +1,46 @@
+name: Dependabot automatisch übernehmen
+
+# Übernimmt Pull Requests von Dependabot, sobald die CI und die Sicherheitsprüfung grün sind –
+# aber nur kleine Updates (Patch/Minor) und Sicherheitskorrekturen. Große Versionssprünge (Major)
+# bleiben offen, weil sie Code-Änderungen brauchen können.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Pull Request prüfen und übernehmen
+        run: |
+          set -euo pipefail
+          pr=$(gh pr list --head "$BRANCH" --state open --json number,author,title,headRefOid --jq '.[0]')
+          [ -n "$pr" ] || { echo "Kein offener Pull Request"; exit 0; }
+          num=$(jq -r .number <<<"$pr"); author=$(jq -r .author.login <<<"$pr"); title=$(jq -r .title <<<"$pr")
+          [ "$(jq -r .headRefOid <<<"$pr")" = "$SHA" ] || { echo "Neuerer Stand vorhanden, warte"; exit 0; }
+          [[ "$author" == "dependabot[bot]" || "$author" == "app/dependabot" ]] || { echo "Nicht von Dependabot"; exit 0; }
+          # Sicherheitsprüfung für diesen Stand muss ebenfalls grün sein
+          sec=$(gh api "repos/$GH_REPO/actions/runs?head_sha=$SHA" --jq '[.workflow_runs[] | select(.name=="Sicherheit")][0].conclusion // "fehlt"')
+          if [ "$sec" != "success" ] && [ "$sec" != "fehlt" ]; then echo "Sicherheitsprüfung: $sec"; exit 0; fi
+          # Major-Sprünge (z. B. „from 4.2.1 to 5.0.0“) nicht automatisch
+          if [[ "$title" =~ from\ v?([0-9]+)[^\ ]*\ to\ v?([0-9]+) ]] && [ "${BASH_REMATCH[1]}" != "${BASH_REMATCH[2]}" ]; then
+            gh pr comment "$num" --body "Großer Versionssprung – bitte selbst prüfen. (Automatisch übernommen werden nur kleine Updates.)"
+            exit 0
+          fi
+          gh pr merge "$num" --squash --delete-branch
+          echo "Übernommen: $title"

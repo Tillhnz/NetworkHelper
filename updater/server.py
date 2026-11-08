@@ -193,7 +193,7 @@ def do_update():
         code, out = run(["git", "pull", "--ff-only"], 300, log=True)
         if code != 0:
             raise RuntimeError("git pull ist fehlgeschlagen. Lokale Änderungen im Projektordner verhindern das Update oder GitHub ist nicht erreichbar.")
-        code, out = run(base + ["build", *SERVICES], 3000, log=True)
+        code, out = run(base + ["build", "--pull", *SERVICES], 3000, log=True)
         if code != 0:
             run(["git", "reset", "--keep", before], 60, log=True)
             raise RuntimeError("Der Bau der neuen Version ist fehlgeschlagen. Die laufende Version bleibt unverändert.")
@@ -202,7 +202,7 @@ def do_update():
         if code != 0 or not wait_healthy():
             job["log"] += "Die neue Version startet nicht. Gehe zur vorherigen Version zurück …\n"
             run(["git", "reset", "--keep", before], 60, log=True)
-            run(base + ["build", *SERVICES], 3000, log=True)
+            run(base + ["build", "--pull", *SERVICES], 3000, log=True)
             run(base + ["up", "-d", *SERVICES], 600, log=True)
             raise RuntimeError("Die neue Version ist nicht angesprungen. NetworkHelper läuft wieder mit der vorherigen Version. Die Datenbank-Sicherung vom Start des Updates liegt im Ordner backups.")
         job["log"] += "Räume alte Images auf …\n"

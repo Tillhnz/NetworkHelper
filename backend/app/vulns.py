@@ -561,7 +561,7 @@ def remedy(target: InventoryTarget, findings: list[VulnFinding], agent: Agent | 
         comp = next((c for c in cont if c.get("compose")), None)
         pinned = PINNED_TAG.match(_tag(image)) is not None
         if _own_build(image):
-            steps.append({"text": "Selbst gebautes Image: Abhängigkeiten anheben und neu bauen", "cmd": None})
+            steps.append({"text": "Selbst gebautes Image (deine eigene App). Ist im GitHub-Repo Dependabot eingerichtet, liegt dort meist schon ein Pull Request mit der Korrektur bzw. ist bereits übernommen: dann genügt der Update-Knopf in der App. Sonst von Hand:", "cmd": None})
             for f in open_f:
                 if f.ecosystem in LANG_FIX and f.fixed:
                     fixed = f.fixed.split(",")[0].strip()

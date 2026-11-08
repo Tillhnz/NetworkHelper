@@ -1,0 +1,33 @@
+# Dependabot hält die Abhängigkeiten aktuell.
+# - Sicherheitslücken: sofort ein eigener Pull Request (dafür in GitHub unter Settings → Code security
+#   „Dependabot alerts“ und „Dependabot security updates“ einschalten).
+# - Alles andere: einmal pro Woche gesammelt. Kleine Updates werden nach grüner CI automatisch übernommen
+#   (.github/workflows/dependabot-automerge.yml), große Versionssprünge bleiben zum Ansehen liegen.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule: { interval: weekly, day: monday, time: "05:00", timezone: Europe/Berlin }
+    open-pull-requests-limit: 5
+    groups:
+      python-klein:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly, day: monday, time: "05:00", timezone: Europe/Berlin }
+    open-pull-requests-limit: 5
+    groups:
+      npm-klein:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directories: [/backend, /frontend, /updater]
+    schedule: { interval: weekly, day: monday, time: "05:00", timezone: Europe/Berlin }
+    groups:
+      basis-images:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    groups:
+      actions:
+        patterns: ["*"]

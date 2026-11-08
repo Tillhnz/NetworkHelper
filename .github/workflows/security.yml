@@ -1,0 +1,65 @@
+name: Sicherheit
+
+# Prüft alle Abhängigkeiten auf bekannte Lücken: bei jeder Änderung und jeden Morgen, damit auch Lücken
+# auffallen, die nach dem letzten Commit bekannt werden. Schlägt die Prüfung fehl, schickt GitHub eine E-Mail.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python-Pakete
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - name: pip-audit (auch indirekte Abhängigkeiten)
+        run: |
+          pip-audit -r backend/requirements.txt --desc on -f json -o audit.json || true
+          python - <<'PY'
+          import json, sys
+          data = json.load(open("audit.json"))
+          deps = data.get("dependencies", data) if isinstance(data, dict) else data
+          bad = [(d["name"], d["version"], v) for d in deps for v in d.get("vulns", [])]
+          for name, ver, v in bad:
+              fix = ", ".join(v.get("fix_versions") or []) or "noch keine"
+              print(f"::error title=Lücke in {name} {ver}::{v['id']} {' '.join(v.get('aliases', []))} – behoben in: {fix}")
+          print(f"{len(bad)} bekannte Lücken in Python-Paketen")
+          sys.exit(1 if bad else 0)
+          PY
+
+  npm:
+    name: npm-Pakete
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts; fi
+      - name: npm audit (nur, was im Browser landet; ab „hoch“)
+        run: |
+          npm audit --omit=dev --json > audit.json || true
+          node -e '
+            const a = require("./audit.json"); const v = Object.values(a.vulnerabilities || {});
+            const bad = v.filter(x => ["high", "critical"].includes(x.severity));
+            for (const x of bad) {
+              const fix = x.fixAvailable ? (x.fixAvailable.version || "ja") : "noch keine";
+              console.log(`::error title=Lücke in ${x.name}::${x.severity} – ${x.range} – Korrektur: ${fix}`);
+            }
+            console.log(`${bad.length} schwere Lücken in npm-Paketen (${v.length} insgesamt)`);
+            process.exit(bad.length ? 1 : 0);
+          '
