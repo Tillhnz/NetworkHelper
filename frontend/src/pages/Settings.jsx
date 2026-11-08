@@ -6,6 +6,7 @@ import { Segmented, Switch } from "../components/controls.jsx";
 import { toast } from "../components/feedback.jsx";
 import { getTheme, setTheme } from "../theme.js";
 import TwoFactor from "../components/TwoFactor.jsx";
+import PushSetup from "../components/PushSetup.jsx";
 import { Term } from "../components/help.jsx";
 
 export default function Settings({ user, onChange, onLogout }) {
@@ -37,8 +38,14 @@ export default function Settings({ user, onChange, onLogout }) {
         <h2>Konto</h2>
         <p>Angemeldet als <strong>{user.email}</strong> ({user.role === "admin" ? "Administrator" : "Nutzer"}).</p>
         <Switch checked={user.alert_email} onChange={alerts}>Warnungen per E-Mail an diese Adresse</Switch>
-        <p className="muted small">Ob und ab welcher Stufe gemailt wird, legt der Administrator unter Administration → E-Mail fest.</p>
+        <p className="muted small">Ob und ab welcher Stufe gemailt wird, legt der Administrator unter Administration → E-Mail & Push fest.</p>
       </section>
+      {user.role === "admin" && (
+        <section className="panel">
+          <h2>Push aufs Handy (ntfy)</h2>
+          <PushSetup />
+        </section>
+      )}
       <section className="panel">
         <h2>Einführung</h2>
         <p className="muted small">Die Tour zeigt dir in zwei Minuten alle Bereiche. Ausgeblendete Erklärkästen auf den Seiten kannst du hier zurückholen.</p>
