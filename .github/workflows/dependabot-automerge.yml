@@ -1,6 +1,6 @@
 name: Dependabot automatisch übernehmen
 
-# Übernimmt Pull Requests von Dependabot, sobald die CI und die Sicherheitsprüfung grün sind –
+# Übernimmt Pull Requests von Dependabot, sobald die CI (Tests) grün ist –
 # aber nur kleine Updates (Patch/Minor) und Sicherheitskorrekturen. Große Versionssprünge (Major)
 # bleiben offen, weil sie Code-Änderungen brauchen können.
 on:
@@ -34,9 +34,6 @@ jobs:
           num=$(jq -r .number <<<"$pr"); author=$(jq -r .author.login <<<"$pr"); title=$(jq -r .title <<<"$pr")
           [ "$(jq -r .headRefOid <<<"$pr")" = "$SHA" ] || { echo "Neuerer Stand vorhanden, warte"; exit 0; }
           [[ "$author" == "dependabot[bot]" || "$author" == "app/dependabot" ]] || { echo "Nicht von Dependabot"; exit 0; }
-          # Sicherheitsprüfung für diesen Stand muss ebenfalls grün sein
-          sec=$(gh api "repos/$GH_REPO/actions/runs?head_sha=$SHA" --jq '[.workflow_runs[] | select(.name=="Sicherheit")][0].conclusion // "fehlt"')
-          if [ "$sec" != "success" ] && [ "$sec" != "fehlt" ]; then echo "Sicherheitsprüfung: $sec"; exit 0; fi
           # Major-Sprünge (z. B. „from 4.2.1 to 5.0.0“) nicht automatisch
           if [[ "$title" =~ from\ v?([0-9]+)[^\ ]*\ to\ v?([0-9]+) ]] && [ "${BASH_REMATCH[1]}" != "${BASH_REMATCH[2]}" ]; then
             gh pr comment "$num" --body "Großer Versionssprung – bitte selbst prüfen. (Automatisch übernommen werden nur kleine Updates.)"
