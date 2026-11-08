@@ -96,18 +96,21 @@ FAST = [
 SLOW = [
     Job("npm_sync", dns.sync_from_npm, lambda: 600, npm.configured, delay=40),
     Job("dyndns", dns.run_dyndns, lambda: settings.dyndns_interval_min * 60, _dyndns_enabled, delay=60),
-    Job("vulns", vulns.run, lambda: 2 * 3600, lambda: settings.vuln_watch, delay=150),
     Job("proxmox", proxmox.run, lambda: 1800, lambda: proxmox.configured() and bool(settings.proxmox_fingerprint), delay=100),
     Job("certs", certs.run, lambda: 6 * 3600, lambda: settings.cert_auto_renew and npm.configured(), delay=200),
     Job("sitecheck", sitecheck.run, lambda: settings.site_check_interval_h * 3600, delay=120),
     Job("domainguard", domainguard.run, lambda: 24 * 3600, porkbun.configured, delay=150),
     Job("feeds", geoblock.refresh_feeds, lambda: 24 * 3600, lambda: bool(geoblock.enabled_feeds()), delay=90),
+    Job("maintenance", _maintenance, lambda: 6 * 3600, delay=5),
+]
+# Lange Prüfungen mit vielen Abrufen im Internet laufen getrennt, damit sie nichts anderes aufhalten
+HEAVY = [
+    Job("vulns", vulns.run, lambda: 2 * 3600, lambda: settings.vuln_watch, delay=150),
     Job("appversions", appversions.run, lambda: 12 * 3600, lambda: settings.app_check_enabled, delay=300),
     Job("exposure", exposure.run, lambda: settings.exposure_interval_h * 3600, lambda: settings.exposure_enabled, delay=240),
     Job("portscan", portscan.run, lambda: settings.scan_interval_h * 3600, lambda: settings.scan_enabled, delay=180),
-    Job("maintenance", _maintenance, lambda: 6 * 3600, delay=5),
 ]
-JOBS = {j.name: j for j in FAST + SLOW}
+JOBS = {j.name: j for j in FAST + SLOW + HEAVY}
 
 
 def _lane(jobs: list[Job]) -> None:
@@ -127,6 +130,7 @@ def _lane(jobs: list[Job]) -> None:
 def start() -> None:
     threading.Thread(target=_lane, args=(FAST,), daemon=True, name="jobs-fast").start()
     threading.Thread(target=_lane, args=(SLOW,), daemon=True, name="jobs-slow").start()
+    threading.Thread(target=_lane, args=(HEAVY,), daemon=True, name="jobs-heavy").start()
 
 
 def trigger(name: str) -> bool:

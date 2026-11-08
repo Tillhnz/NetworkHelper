@@ -488,7 +488,7 @@ def _vuln_env(monkeypatch, osv_results):
         "PYSEC-django": {"id": "PYSEC-django", "aliases": ["CVE-2024-1"], "summary": "dupe"},
         "DEBIAN-CVE-x": {"id": "DEBIAN-CVE-x", "aliases": [], "summary": "minor"},
     }
-    monkeypatch.setattr(vulns, "osv_vuln", lambda vid: details[vid])
+    monkeypatch.setattr(vulns, "osv_vuln", lambda vid, client=None: details[vid])
     hosts = [{"id": 1, "domains": ["app.example.de"], "host": "192.168.1.20", "port": 8080, "enabled": True, "access_list_id": 0},
              {"id": 2, "domains": ["network.example.de"], "host": "192.168.1.20", "port": 8080, "enabled": True, "access_list_id": 0},
              {"id": 3, "domains": ["intern.example.de"], "host": "192.168.1.20", "port": 9000, "enabled": True, "access_list_id": 7}]

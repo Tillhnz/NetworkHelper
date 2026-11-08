@@ -31,7 +31,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 CONFIG = os.environ.get("NH_AGENT_CONFIG", "/etc/networkhelper-agent.json")
 STATE_DIR = os.environ.get("NH_AGENT_STATE", "/var/lib/networkhelper-agent")
 DEFAULTS = {
@@ -295,7 +295,8 @@ SYFT_VERSION = "1.55.0"
 SYFT_SHA = {"amd64": "bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d",
             "arm64": "929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304"}
 SYFT_PATHS = ["/usr/local/lib/networkhelper-agent/syft", "/usr/local/bin/syft", "/usr/bin/syft"]
-HOST_DIRS = ["/usr/local", "/opt", "/srv", "/root", "/home"]
+# Nur Programmordner, keine Datenordner wie /home oder /srv (dort liegen oft riesige Datenmengen)
+HOST_DIRS = ["/usr/local", "/opt"]
 NICE = ["nice", "-n", "19"] + (["ionice", "-c", "3"] if shutil.which("ionice") else [])
 
 
@@ -436,9 +437,30 @@ class Inventory(threading.Thread):
         self.last_sig = None
         self.force = threading.Event()
 
+    CACHE_FILE = os.path.join(STATE_DIR, "inventory-cache.json")
+
+    def load_cache(self):
+        try:
+            with open(self.CACHE_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            self.cache = {k: tuple(v) for k, v in data.items() if isinstance(v, list) and len(v) == 4}
+        except (OSError, ValueError):
+            self.cache = {}
+
+    def save_cache(self, keep):
+        self.cache = {k: v for k, v in self.cache.items() if k in keep}
+        try:
+            os.makedirs(os.path.dirname(self.CACHE_FILE), exist_ok=True)
+            with open(self.CACHE_FILE + ".tmp", "w", encoding="utf-8") as f:
+                json.dump(self.cache, f)
+            os.replace(self.CACHE_FILE + ".tmp", self.CACHE_FILE)
+        except OSError:
+            pass
+
     def scan_image(self, image_id):
+        """Ein Image ändert sich nie: einmal auslesen genügt (Fehlversuche nach einem Tag wiederholen)."""
         hit = self.cache.get(image_id)
-        if hit and time.time() - hit[0] < float(self.cfg.get("inventory_hours") or 24) * 3600:
+        if hit and (hit[3] is None or time.time() - hit[0] < 86400):
             return hit[1:]
         try:
             rows, distro = run_syft(self.syft, "docker:" + image_id)
@@ -473,7 +495,8 @@ class Inventory(threading.Thread):
         rows, err = self.scan_host()
         targets.append({"key": "host", "distro": os_release(), "packages": rows, "error": err,
                         "scanner": ("syft " if self.syft else "") + ("dpkg" if shutil.which("dpkg-query") else "apk")})
-        for image_id, info in running_containers().items():
+        running = running_containers()
+        for image_id, info in running.items():
             t = {"key": "image:" + image_id.replace("sha256:", "")[:64], "image": info["image"], "containers": info["containers"]}
             if self.syft:
                 rows, distro, err = self.scan_image(image_id)
@@ -481,6 +504,8 @@ class Inventory(threading.Thread):
             else:
                 t.update({"packages": None, "error": "syft fehlt: Agent mit --inventory neu installieren"})
             targets.append(t)
+        if self.syft:
+            self.save_cache(set(running))
         return targets
 
     def signature(self):
@@ -488,6 +513,7 @@ class Inventory(threading.Thread):
 
     def run(self):
         time.sleep(90)
+        self.load_cache()
         if not self.syft:
             try:
                 self.syft = install_syft()
@@ -655,7 +681,6 @@ class Updater(threading.Thread):
                 except Exception as e:  # noqa: BLE001
                     log("Ergebnis nicht gemeldet: %s" % e)
                 if self.inventory is not None:
-                    self.inventory.cache.clear()
                     self.inventory.force.set()
 
 

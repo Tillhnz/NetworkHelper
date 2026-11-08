@@ -77,10 +77,13 @@ function Remedy({ t, isAdmin, reload }) {
 
 function Target({ t, isAdmin, reload, quarantined }) {
   const [open, setOpen] = useState(false);
-  const [all, setAll] = useState(false);
+  const [all, setAll] = useState(null);
   const active = t.findings.filter((f) => !f.accepted);
   const serious = active.filter((f) => f.kev || (f.score || 0) >= 7);
-  const shown = all ? t.findings : t.findings.filter((f) => f.kev || (f.score || 0) >= 7 || f.accepted);
+  const shown = all || t.findings;
+  async function loadAll() {
+    try { setAll(await api.get(`/security/vulns/targets/${t.id}/findings`)); } catch (e) { toast(e.message, "error"); }
+  }
   const tone = serious.some((f) => f.kev || f.score >= 9) ? "due" : serious.length ? "soon" : "ok";
   async function lock(s) {
     if (!(await confirmDialog(`${s.domains[0]} ist danach nur noch aus dem Heimnetz erreichbar, bis du die Sperre aufhebst.`, { title: "Vorsichtshalber sperren?", confirmLabel: "Sperren" }))) return;
@@ -99,16 +102,16 @@ function Target({ t, isAdmin, reload, quarantined }) {
           <span className="muted small block">{fmtNum(t.packages)} Pakete{t.distro && ` · ${t.distro}`} · Inventur {fmtAgo(t.scanned_at)}{t.error && ` · ${t.error}`}</span>
         </span>
         {serious.length ? <Pill tone={tone}>{serious.length} {serious.length === 1 ? "Lücke" : "Lücken"}</Pill>
-          : active.length ? <Pill tone="muted">{active.length} gering</Pill> : <Pill tone="ok">sauber</Pill>}
+          : t.minor ? <Pill tone="muted">{t.minor} gering</Pill> : <Pill tone="ok">sauber</Pill>}
       </button>
       {open && (
         <div className="pve-detail">
           {shown.length > 0 ? <ul className="plain-list">{shown.map((f) => <Finding key={f.id} f={f} isAdmin={isAdmin} reload={reload} />)}</ul>
             : <p className="small muted">Keine schweren Lücken.</p>}
-          {t.findings.length > shown.length && !all && (
-            <button className="link small" onClick={() => setAll(true)}>{t.findings.length - shown.length} weitere mit geringer oder unbekannter Schwere zeigen</button>
+          {t.minor > 0 && !all && (
+            <button className="link small" onClick={loadAll}>{t.minor} weitere mit geringer oder unbekannter Schwere zeigen</button>
           )}
-          {t.remedy && active.length > 0 && <Remedy t={t} isAdmin={isAdmin} reload={reload} />}
+          {t.remedy && (active.length > 0 || t.minor > 0) && <Remedy t={t} isAdmin={isAdmin} reload={reload} />}
           {isAdmin && t.services.filter((s) => !quarantined.has(s.id)).map((s) => (
             <button key={s.id} className="btn small" onClick={() => lock(s)}>{s.domains[0]} vorsichtshalber sperren</button>
           ))}

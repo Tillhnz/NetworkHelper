@@ -442,6 +442,11 @@ def vulns_overview(user: User = Depends(current_user), db: Session = Depends(get
     return {**vulns.overview(db), "running": scheduler.JOBS["vulns"].running}
 
 
+@router.get("/vulns/targets/{target_id}/findings")
+def vulns_target_findings(target_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return vulns.target_findings(db, target_id)
+
+
 @router.post("/vulns/check", status_code=202)
 def vulns_check(admin: User = Depends(require_admin)):
     scheduler.trigger("vulns")

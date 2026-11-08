@@ -155,13 +155,32 @@ def osv_batch(queries: list[tuple[str, str, str]]) -> list[list[dict]]:
     return out
 
 
-def osv_vuln(vid: str) -> dict:
+def osv_vuln(vid: str, client: httpx.Client | None = None) -> dict:
     try:
-        r = httpx.get(f"{OSV}/vulns/{vid}", timeout=30, headers=UA)
+        r = (client or httpx).get(f"{OSV}/vulns/{vid}", timeout=30, headers=UA)
         r.raise_for_status()
     except httpx.HTTPError as e:
         raise VulnError(f"OSV.dev: {vid} nicht abrufbar ({e.__class__.__name__})")
     return r.json()
+
+
+MAX_FETCH = 3000
+
+
+def _fetch_many(ids: list[str]) -> list[dict]:
+    from concurrent.futures import ThreadPoolExecutor
+
+    if not ids:
+        return []
+    with httpx.Client(limits=httpx.Limits(max_connections=16)) as client:
+        def one(vid):
+            try:
+                return osv_vuln(vid, client)
+            except VulnError as e:
+                log.warning("%s", e)
+                return None
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            return [d for d in pool.map(one, ids) if d]
 
 
 def score_of(v: dict) -> float | None:
@@ -324,15 +343,18 @@ def scan(db: Session) -> dict:
     for res in results:
         for v in res:
             need[v["id"]] = _parse_dt(v.get("modified"))
+    known = {v.id: v for v in db.scalars(select(Vuln).where(Vuln.id.in_(list(need))))} if need else {}
+    fetch = []
     for vid, modified in need.items():
-        row = db.get(Vuln, vid)
-        if row is None or (modified and row.fetched_at < modified) or row.fetched_at < datetime.utcnow() - timedelta(days=7):
-            try:
-                store_vuln(db, osv_vuln(vid), kev)
-            except VulnError as e:
-                log.warning("%s", e)
-        elif row is not None:
+        row = known.get(vid)
+        if row is None or (modified and row.fetched_at < modified) or row.fetched_at < datetime.utcnow() - timedelta(days=30):
+            fetch.append(vid)
+        else:
             row.kev = bool(_cves(row) & kev) or row.id in kev
+    # neue zuerst, höchstens MAX_FETCH pro Lauf, parallel (sonst dauert es bei Debian-Images Stunden)
+    fetch.sort(key=lambda v: v in known)
+    for data in _fetch_many(fetch[:MAX_FETCH]):
+        store_vuln(db, data, kev)
     db.flush()
 
     now = datetime.utcnow()
@@ -754,6 +776,21 @@ def run(db: Session) -> None:
 
 # ---------- Für die Oberfläche ----------
 
+def finding_dict(f: VulnFinding, v: Vuln | None) -> dict:
+    return {"id": f.id, "vuln": f.vuln_id, "package": f.package, "version": f.version, "fixed": f.fixed,
+            "ecosystem": f.ecosystem, "language": LANG_LABEL.get(f.ecosystem, "System" if ":" in f.ecosystem else f.ecosystem),
+            "score": v.score if v else None, "severity": cvss.label(v.score if v else None), "kev": bool(v and v.kev),
+            "summary": v.summary if v else None, "url": v.url if v else None,
+            "cves": sorted(_cves(v))[:3] if v else [], "first_seen": f.first_seen.isoformat(), "accepted": f.accepted}
+
+
+def target_findings(db: Session, target_id: int) -> list[dict]:
+    rows = list(db.scalars(select(VulnFinding).where(VulnFinding.target_id == target_id, VulnFinding.resolved_at.is_(None))))
+    vmap = {v.id: v for v in db.scalars(select(Vuln).where(Vuln.id.in_({f.vuln_id for f in rows})))} if rows else {}
+    out = [finding_dict(f, vmap.get(f.vuln_id)) for f in rows]
+    return sorted(out, key=lambda x: (not x["kev"], -(x["score"] or 0), x["package"]))[:2000]
+
+
 def overview(db: Session) -> dict:
     targets = {t.id: t for t in db.scalars(select(InventoryTarget))}
     agents = {a.id: a.name for a in db.scalars(select(Agent))}
@@ -771,18 +808,19 @@ def overview(db: Session) -> dict:
     quarantines = {}
     for q in db.scalars(select(Quarantine).order_by(Quarantine.started_at.desc()).limit(200)):
         quarantines.setdefault(q.proxy_host_id, []).append(q)
+    open_rows = list(db.scalars(select(VulnFinding).where(VulnFinding.resolved_at.is_(None))))
+    vmap = {v.id: v for v in db.scalars(select(Vuln).where(Vuln.id.in_({f.vuln_id for f in open_rows})))} if open_rows else {}
     findings: dict[int, list[dict]] = {}
-    for f in db.scalars(select(VulnFinding).where(VulnFinding.resolved_at.is_(None))):
-        v = db.get(Vuln, f.vuln_id)
-        findings.setdefault(f.target_id, []).append({
-            "id": f.id, "vuln": f.vuln_id, "package": f.package, "version": f.version, "fixed": f.fixed,
-            "ecosystem": f.ecosystem, "language": LANG_LABEL.get(f.ecosystem, "System" if ":" in f.ecosystem else f.ecosystem),
-            "score": v.score if v else None, "severity": cvss.label(v.score if v else None), "kev": bool(v and v.kev),
-            "summary": v.summary if v else None, "url": v.url if v else None,
-            "cves": sorted(_cves(v))[:3] if v else [], "first_seen": f.first_seen.isoformat(), "accepted": f.accepted})
+    minor: dict[int, int] = {}
+    for f in open_rows:
+        v = vmap.get(f.vuln_id)
+        if not (f.accepted or (v and (v.kev or (v.score or 0) >= 7))):
+            minor[f.target_id] = minor.get(f.target_id, 0) + 1  # gering/unbekannt: nur zählen, auf Wunsch nachladen
+            continue
+        findings.setdefault(f.target_id, []).append(finding_dict(f, v))
     agent_rows = {a.id: a for a in db.scalars(select(Agent))}
     finding_rows: dict[int, list[VulnFinding]] = {}
-    for f in db.scalars(select(VulnFinding).where(VulnFinding.resolved_at.is_(None))):
+    for f in open_rows:
         finding_rows.setdefault(f.target_id, []).append(f)
     actions: dict[int, list[dict]] = {}
     for a in db.scalars(select(VulnAction).order_by(VulnAction.created_at.desc()).limit(300)):
@@ -795,9 +833,9 @@ def overview(db: Session) -> dict:
         svcs = svc_by_target.get(tid, [])
         items.append({"id": tid, "agent": agents.get(t.agent_id), "key": t.key, "image": t.image, "label": _target_label(t),
                       "distro": t.distro, "scanner": t.scanner, "packages": t.package_count, "error": t.error,
-                      "scanned_at": t.scanned_at.isoformat(), "services": svcs, "findings": fs,
+                      "scanned_at": t.scanned_at.isoformat(), "services": svcs, "findings": fs, "minor": minor.get(tid, 0),
                       "exposed": any(not s["protected"] for s in svcs),
-                      "remedy": remedy(t, finding_rows.get(tid, []), agent_rows.get(t.agent_id)) if fs else None,
+                      "remedy": remedy(t, finding_rows.get(tid, []), agent_rows.get(t.agent_id)) if tid in finding_rows else None,
                       "actions": actions.get(tid, [])[:5]})
     items.sort(key=lambda i: (not i["exposed"], -max([f["score"] or 0 for f in i["findings"] if not f["accepted"]] or [0]), i["label"]))
     unmapped = [{"id": s["host"]["id"], "domains": s["host"]["domains"], "forward": f"{s['host']['host']}:{s['host']['port']}"}

@@ -127,6 +127,7 @@ def http_get(url: str) -> dict:
 def npm_hosts() -> list[dict] | None:
     if not npm.configured():
         return None
+    npm.forget_hosts()  # frisch holen: vielleicht wurde gerade etwas geändert
     return npm.raw_proxy_hosts()
 
 

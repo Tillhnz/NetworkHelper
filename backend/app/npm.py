@@ -72,7 +72,24 @@ def _api(method: str, path: str, params: dict | None = None, timeout: float = 20
     return data
 
 
+_hosts_cache: dict = {"at": 0.0, "data": None, "for": None}
+
+
 def raw_proxy_hosts() -> list[dict]:
+    """Proxy Hosts, 60 Sekunden zwischengespeichert (viele Seiten und Prüfungen brauchen sie gleichzeitig)."""
+    key = (settings.npm_url, settings.npm_email)
+    if _hosts_cache["data"] is not None and _hosts_cache["for"] == key and time.time() - _hosts_cache["at"] < 60:
+        return [dict(h) for h in _hosts_cache["data"]]
+    data = _raw_proxy_hosts()
+    _hosts_cache.update(at=time.time(), data=data, **{"for": key})
+    return [dict(h) for h in data]
+
+
+def forget_hosts() -> None:
+    _hosts_cache["data"] = None
+
+
+def _raw_proxy_hosts() -> list[dict]:
     """Proxy Hosts mit allen Angaben, die die Fehlersuche braucht."""
     out = []
     for h in _api("GET", "/api/nginx/proxy-hosts", {"expand": "certificate"}) or []:
@@ -139,6 +156,7 @@ def quarantine_list(allow: list[str]) -> int:
 
 def set_access_list(host_id: int, access_list_id: int) -> None:
     _api("PUT", f"/api/nginx/proxy-hosts/{int(host_id)}", json={"access_list_id": int(access_list_id)})
+    forget_hosts()
 
 
 def proxy_hosts() -> list[dict]:
