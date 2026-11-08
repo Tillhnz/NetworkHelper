@@ -9,19 +9,36 @@ updates:
     directory: /backend
     schedule: { interval: weekly, day: monday, time: "05:00", timezone: Europe/Berlin }
     open-pull-requests-limit: 5
+    ignore:
+      # Große Versionssprünge brauchen oft Code-Änderungen: keine wöchentlichen PRs dafür.
+      # Sicherheitskorrekturen kommen trotzdem, auch wenn sie einen großen Sprung brauchen.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
-      python-klein:
+      python:
+        patterns: ["*"]
         update-types: [minor, patch]
   - package-ecosystem: npm
     directory: /frontend
     schedule: { interval: weekly, day: monday, time: "05:00", timezone: Europe/Berlin }
     open-pull-requests-limit: 5
+    ignore:
+      # Große Versionssprünge brauchen oft Code-Änderungen: keine wöchentlichen PRs dafür.
+      # Sicherheitskorrekturen kommen trotzdem, auch wenn sie einen großen Sprung brauchen.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
-      npm-klein:
+      npm:
+        patterns: ["*"]
         update-types: [minor, patch]
   - package-ecosystem: docker
     directories: [/backend, /frontend, /updater]
     schedule: { interval: weekly, day: monday, time: "05:00", timezone: Europe/Berlin }
+    ignore:
+      # Große Versionssprünge brauchen oft Code-Änderungen: keine wöchentlichen PRs dafür.
+      # Sicherheitskorrekturen kommen trotzdem, auch wenn sie einen großen Sprung brauchen.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       basis-images:
         patterns: ["*"]
