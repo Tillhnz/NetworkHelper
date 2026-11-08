@@ -39,6 +39,9 @@ updates:
       # Sicherheitskorrekturen kommen trotzdem, auch wenn sie einen großen Sprung brauchen.
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # nginx: nur die stabile Reihe (gerade Nebenversion), nicht „mainline“
+      - dependency-name: nginx
+        versions: ["1.29.x", "1.31.x", "1.33.x"]
     groups:
       basis-images:
         patterns: ["*"]
