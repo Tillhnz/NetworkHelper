@@ -239,6 +239,8 @@ cmd_update() {
     warn "Kein Git-Ordner, überspringe das Herunterladen."
   fi
   start_stack
+  info "Räume alte Images und Bau-Zwischenstände auf …"
+  (cd "$APP_DIR" && "${DOCKER[@]}" image prune -f >/dev/null && "${DOCKER[@]}" builder prune -f --filter until=24h >/dev/null) || true
   report_start
   ok "Update abgeschlossen."
 }

@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     site_check_interval_h: int = 6
     monitor_interval_s: int = 60
     retention_days: int = 30
+    retention_blocked_days: int = 7  # abgewiesene Anfragen (Sperrliste) kürzer aufheben
     geoip_enabled: bool = True
     geoip_city: bool = True
     github_token: str = ""  # optional: mehr Abfragen bei GitHub (Versionsprüfung), Rechte: keine nötig

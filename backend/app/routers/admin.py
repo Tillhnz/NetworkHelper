@@ -8,6 +8,7 @@ import shutil
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta
 from typing import Literal
 
 import httpx
@@ -312,6 +313,43 @@ def create_backup(admin: User = Depends(require_admin), db: Session = Depends(ge
     r = _updater("POST", "/backups", timeout=300)
     audit.record(db, admin.email, "backup.create", r.get("name", ""))
     return r
+
+
+# ---------- Speicherplatz ----------
+
+@router.get("/storage")
+def storage_usage(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from .. import storage
+    from ..models import AccessEvent
+    out = {"db": storage.db_usage(), "shrink": storage.job, "disk": None, "disk_error": None}
+    since = datetime.utcnow() - timedelta(days=1)
+    out["db"]["access_per_day"] = db.scalar(select(func.count(AccessEvent.id)).where(AccessEvent.ts >= since)) or 0
+    out["db"]["blocked_per_day"] = db.scalar(select(func.count(AccessEvent.id)).where(AccessEvent.ts >= since, AccessEvent.blocked.is_(True))) or 0
+    out["db"]["retention_blocked_days"] = settings.retention_blocked_days
+    try:
+        out["disk"] = _updater("GET", "/disk", timeout=120)
+    except HTTPException as e:
+        out["disk_error"] = ("Der Update-Dienst ist zu alt dafür. Einmalig im Terminal des Servers ausführen: ./install.sh update"
+                             if "404" in str(e.detail) or "Fehler 404" in str(e.detail) else e.detail)
+    return out
+
+
+@router.post("/storage/cleanup")
+def storage_cleanup(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    r = _updater("POST", "/cleanup", timeout=1200)
+    audit.record(db, admin.email, "storage.cleanup")
+    return r
+
+
+@router.post("/storage/shrink", status_code=202)
+def storage_shrink(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from .. import storage
+    from ..scheduler import _maintenance
+    _maintenance(db)  # erst alte Einträge löschen, dann verkleinern
+    if not storage.start_shrink():
+        raise HTTPException(409, "Läuft bereits.")
+    audit.record(db, admin.email, "storage.shrink")
+    return {"started": True}
 
 
 # ---------- Protokoll und Zustand ----------

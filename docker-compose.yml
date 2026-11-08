@@ -1,5 +1,13 @@
+# Protokolle der Container begrenzen (sonst wachsen sie unbegrenzt): höchstens 3 × 10 MB pro Dienst
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
+    logging: *logging
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -15,6 +23,7 @@ services:
       retries: 10
 
   backend:
+    logging: *logging
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -51,6 +60,7 @@ services:
   # Der Zugriff auf den Docker-Socket entspricht Root-Rechten auf dem Server. Wer das nicht möchte, entfernt
   # diesen Block und aktualisiert mit ./install.sh update im Terminal.
   updater:
+    logging: *logging
     build: ./updater
     restart: unless-stopped
     environment:
@@ -60,6 +70,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   frontend:
+    logging: *logging
     build: ./frontend
     restart: unless-stopped
     depends_on:

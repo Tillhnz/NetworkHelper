@@ -1107,3 +1107,8 @@ ul.bullet li{margin:.3rem 0}
 .remedy .cmd{display:flex;gap:.6rem;align-items:center;margin:.3rem 0;flex-wrap:wrap}
 .remedy .cmd code{font-family:var(--mono,monospace);font-size:.8rem;padding:.25rem .5rem;border-radius:6px;background:var(--panel);word-break:break-all}
 .remedy .actions li{display:flex;gap:.6rem;align-items:flex-start}
+.storage-table{width:100%;max-width:36rem;margin:.4rem 0 .8rem}
+.storage-table td{padding:.3rem 0;border-bottom:1px solid var(--line)}
+.storage-table td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.meter{height:.6rem;border-radius:99px;background:var(--line);overflow:hidden;max-width:36rem;margin:.3rem 0}
+.meter>span{display:block;height:100%;background:var(--celeste)}

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { api, fmtAgo, fmtDate, fmtDateTime } from "../api.js";
 import { Loading, confirmDialog, toast } from "../components/feedback.jsx";
 import { Pill } from "../components/ui.jsx";
+import Storage from "../components/Storage.jsx";
 
 const ROLE_TEXT = { admin: "Administrator", user: "Nutzer" };
 
@@ -491,7 +492,7 @@ export default function Admin({ user }) {
           <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setParams(k === "overview" ? {} : { tab: k })}>{label}</button>
         ))}
       </div>
-      {tab === "overview" && <><Health /><Updates /><Backups /></>}
+      {tab === "overview" && <><Health /><Updates /><Storage /><Backups /></>}
       {tab === "accounts" && <><Accounts /><Invites /></>}
       {tab === "log" && <AuditLog />}
       {needsDefs && !defs && <Loading />}

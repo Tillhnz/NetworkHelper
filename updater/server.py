@@ -21,7 +21,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PROJECT = "/project"
 TOKEN = hashlib.sha256(("updater:" + os.environ.get("SECRET_KEY", "")).encode()).hexdigest()
 BACKUPS = os.path.join(PROJECT, "backups")
-KEEP_BACKUPS = 14
+KEEP_BACKUPS = 7
+VERSION = 2  # Fähigkeiten: 2 = Speicher anzeigen und aufräumen
 HEALTH_URL = "http://backend:8000/api/health"
 SERVICES = ["backend", "frontend"]  # der Update-Dienst baut sich nicht selbst neu, das macht ./install.sh update
 
@@ -72,6 +73,62 @@ def make_backup():
     for old in sorted(f for f in os.listdir(BACKUPS) if f.startswith("networkhelper-"))[:-KEEP_BACKUPS]:
         os.remove(os.path.join(BACKUPS, old))
     return name
+
+
+def _size(path):
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return total
+
+
+def _bytes(text):
+    m = re.match(r"^\s*([\d.]+)\s*([kKMGT]?B)", text or "")
+    if not m:
+        return 0
+    return int(float(m.group(1)) * {"B": 1, "kB": 1e3, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12}[m.group(2)])
+
+
+def disk():
+    """Wofür der Platz draufgeht: Docker (Images, Bau-Zwischenstände, Volumes), Sicherungen, freier Platz."""
+    st = os.statvfs(PROJECT)
+    out = {"version": VERSION, "disk_total": st.f_blocks * st.f_frsize, "disk_free": st.f_bavail * st.f_frsize,
+           "backups": _size(BACKUPS) if os.path.isdir(BACKUPS) else 0, "docker": []}
+    code, txt = run(["docker", "system", "df", "--format", "{{json .}}"], 120)
+    if code == 0:
+        for line in txt.splitlines():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            out["docker"].append({"type": d.get("Type"), "count": d.get("TotalCount"), "size": _bytes(d.get("Size")),
+                                  "reclaimable": _bytes(d.get("Reclaimable"))})
+    name = project_name()
+    if name:
+        code, txt = run(["docker", "images", "--filter", f"label=com.docker.compose.project={name}", "--filter", "dangling=true", "-q"], 60)
+        out["old_images"] = len([x for x in txt.split() if x]) if code == 0 else None
+    return out
+
+
+def cleanup():
+    """Räumt auf, was nach Updates liegen bleibt. Laufende Container und deren Daten bleiben unberührt."""
+    lines = []
+    name = project_name()
+    if name:
+        code, txt = run(["docker", "image", "prune", "-f", "--filter", f"label=com.docker.compose.project={name}"], 600)
+        lines.append("Alte NetworkHelper-Images: " + (txt.splitlines()[-1] if txt else "nichts"))
+    code, txt = run(["docker", "image", "prune", "-f"], 600)
+    lines.append("Namenlose Images: " + (txt.splitlines()[-1] if txt else "nichts"))
+    code, txt = run(["docker", "builder", "prune", "-f", "--filter", "until=24h"], 900)
+    lines.append("Bau-Zwischenstände: " + (txt.splitlines()[-1] if txt else "nichts"))
+    if os.path.isdir(BACKUPS):
+        for old in sorted(f for f in os.listdir(BACKUPS) if f.startswith("networkhelper-"))[:-KEEP_BACKUPS]:
+            os.remove(os.path.join(BACKUPS, old))
+    return lines
 
 
 def list_backups():
@@ -148,6 +205,11 @@ def do_update():
             run(base + ["build", *SERVICES], 3000, log=True)
             run(base + ["up", "-d", *SERVICES], 600, log=True)
             raise RuntimeError("Die neue Version ist nicht angesprungen. NetworkHelper läuft wieder mit der vorherigen Version. Die Datenbank-Sicherung vom Start des Updates liegt im Ordner backups.")
+        job["log"] += "Räume alte Images auf …\n"
+        try:
+            job["log"] += "\n".join(cleanup()) + "\n"
+        except Exception as e:  # Aufräumen darf das Update nicht scheitern lassen
+            job["log"] += f"Aufräumen übersprungen: {e}\n"
         job["state"] = "done"
     except Exception as e:  # Fehler für die Oberfläche festhalten
         job["state"], job["error"] = "failed", str(e)
@@ -177,6 +239,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, status("check=1" in self.path))
         elif self.path == "/backups":
             self._send(200, {"items": list_backups(), "busy": job["state"] in ("running", "restarting")})
+        elif self.path == "/disk":
+            self._send(200, disk())
         else:
             self._send(404, {"error": "not found"})
 
@@ -188,6 +252,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(409, {"error": "Es läuft gerade ein Update."})
             try:
                 return self._send(201, {"name": make_backup()})
+            except Exception as e:
+                return self._send(502, {"error": str(e)})
+            finally:
+                lock.release()
+        if self.path == "/cleanup":
+            if not lock.acquire(blocking=False):
+                return self._send(409, {"error": "Es läuft gerade ein Update."})
+            try:
+                return self._send(200, {"log": cleanup(), "disk": disk()})
             except Exception as e:
                 return self._send(502, {"error": str(e)})
             finally:
