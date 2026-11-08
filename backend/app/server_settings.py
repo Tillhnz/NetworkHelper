@@ -49,6 +49,7 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "vuln_watch": ("bool", "security", False),
     "vuln_auto_quarantine": ("bool", "security", False),
     "vuln_cvss_threshold": ("int:7:10", "security", False),
+    "vuln_auto_fix": ("choice:off|critical|serious", "security", False),
     "vuln_quarantine_exclude": ("domains", "security", False),
     "proxmox_url": ("urlopt", "proxmox", False),
     "proxmox_token_id": ("str:120", "proxmox", False),

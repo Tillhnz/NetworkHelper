@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     vuln_watch: bool = True  # Pakete der Dienste mit Lückendatenbanken abgleichen
     vuln_auto_quarantine: bool = True  # bei kritischen/ausgenutzten Lücken den Dienst nur noch im Heimnetz erreichbar machen
     vuln_cvss_threshold: int = 9
+    vuln_auto_fix: str = "critical"  # off | critical | serious: Update versuchen (nur Agenten mit --allow-updates)
     vuln_quarantine_exclude: str = ""  # Domains, die nie automatisch gesperrt werden (Komma)
     proxmox_url: str = ""  # z. B. https://192.168.178.2:8006
     proxmox_token_id: str = ""  # networkhelper@pve!monitor

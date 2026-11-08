@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from . import cvss, notify, npm, publicip, state
 from .config import settings
-from .models import Agent, InventoryTarget, Quarantine, Vuln, VulnFinding
+from .models import Agent, InventoryTarget, Quarantine, Vuln, VulnAction, VulnFinding
 
 log = logging.getLogger("networkhelper.vulns")
 
@@ -64,6 +64,14 @@ def _clean_packages(rows) -> list[list[str]]:
     return out
 
 
+def _clean_container(c: dict) -> dict:
+    out = {"name": str(c.get("name", ""))[:120], "ports": str(c.get("ports", ""))[:300]}
+    comp = c.get("compose")
+    if isinstance(comp, dict) and comp.get("project") and comp.get("service"):
+        out["compose"] = {k: str(comp.get(k) or "")[:300] for k in ("project", "service", "dir", "files")}
+    return out
+
+
 def ingest(db: Session, agent: Agent, payload: dict) -> dict:
     """Speichert die Inventur eines Agenten. complete=True: Ziele, die fehlen, laufen nicht mehr."""
     now = datetime.utcnow()
@@ -78,8 +86,7 @@ def ingest(db: Session, agent: Agent, payload: dict) -> dict:
             row = InventoryTarget(agent_id=agent.id, key=key)
             db.add(row)
         row.image = (str(t.get("image") or "")[:300]) or None
-        row.containers = json.dumps([{"name": str(c.get("name", ""))[:120], "ports": str(c.get("ports", ""))[:300]}
-                                     for c in (t.get("containers") or [])[:50] if isinstance(c, dict)])
+        row.containers = json.dumps([_clean_container(c) for c in (t.get("containers") or [])[:50] if isinstance(c, dict)])
         row.distro = (str(t.get("distro") or "")[:60]) or None
         row.scanner = (str(t.get("scanner") or "")[:40]) or None
         row.error = (str(t.get("error") or "")[:300]) or None
@@ -480,6 +487,162 @@ def active_quarantines(db: Session) -> list[Quarantine]:
     return list(db.scalars(select(Quarantine).where(Quarantine.released_at.is_(None), Quarantine.error.is_(None))))
 
 
+# ---------- Lücken schließen ----------
+
+SYSTEM_ECO = ("Debian", "Ubuntu", "Alpine")
+PINNED_TAG = re.compile(r"^v?\d+\.\d+(\.\d+)?([-.+].*)?$")
+LANG_FIX = {
+    "PyPI": "pip install -U \"{pkg}>={fixed}\"",
+    "npm": "npm install {pkg}@{fixed}",
+    "Go": "go get {pkg}@v{fixed} && go mod tidy",
+    "Maven": "In pom.xml/build.gradle {pkg} auf {fixed} anheben",
+    "RubyGems": "bundle update {pkg}",
+    "Packagist": "composer update {pkg}",
+    "crates.io": "cargo update -p {pkg}",
+    "NuGet": "dotnet add package {pkg} --version {fixed}",
+}
+
+
+def _tag(image: str) -> str:
+    last = image.rsplit("/", 1)[-1]
+    return last.split(":", 1)[1].split("@")[0] if ":" in last else "latest"
+
+
+def _own_build(image: str) -> bool:
+    """Selbst gebaute Images (z. B. „bikehelper-backend“) haben keinen Registry-Pfad und meist kein Tag."""
+    return "/" not in image and ":" not in image and "." not in image
+
+
+def remedy(target: InventoryTarget, findings: list[VulnFinding], agent: Agent | None) -> dict:
+    """Wie lassen sich die offenen Lücken dieses Ziels schließen? Für Menschen (Befehle) und für den Agenten (Aktion)."""
+    open_f = [f for f in findings if f.resolved_at is None and not f.accepted]
+    can = bool(agent and agent.allow_updates)
+    steps, action = [], None
+    no_fix = sorted({f.package for f in open_f if not f.fixed})
+    if target.key == "host":
+        sys_pk = sorted({f.package for f in open_f if f.ecosystem.split(":")[0] in SYSTEM_ECO and f.fixed})
+        if sys_pk:
+            mgr = "apk" if (target.distro or "").startswith("alpine") else "apt"
+            steps.append({"text": f"Systempakete aktualisieren ({', '.join(sys_pk[:8])}{' …' if len(sys_pk) > 8 else ''})",
+                          "cmd": "apk upgrade --update-cache" if mgr == "apk" else "apt update && apt full-upgrade -y"})
+            action = {"kind": "host_packages", "params": {"packages": sys_pk[:200]},
+                      "label": f"Systempakete auf {agent.name if agent else 'Server'} aktualisieren"}
+        for f in open_f:
+            if f.ecosystem in LANG_FIX and f.fixed:
+                fixed = f.fixed.split(",")[0].strip()
+                steps.append({"text": f"{f.package} ({LANG_LABEL.get(f.ecosystem)}) auf {fixed} oder neuer", "cmd": LANG_FIX[f.ecosystem].format(pkg=f.package, fixed=fixed)})
+        if any(f.ecosystem == "Laufzeit" for f in open_f):
+            steps.append({"text": "Laufzeit (Node.js/Python/PHP) über den Paketmanager oder die offizielle Quelle auf die genannte Version bringen", "cmd": None})
+    else:
+        image = target.image or ""
+        cont = json.loads(target.containers or "[]")
+        comp = next((c for c in cont if c.get("compose")), None)
+        pinned = PINNED_TAG.match(_tag(image)) is not None
+        if _own_build(image):
+            steps.append({"text": "Selbst gebautes Image: Abhängigkeiten anheben und neu bauen", "cmd": None})
+            for f in open_f:
+                if f.ecosystem in LANG_FIX and f.fixed:
+                    fixed = f.fixed.split(",")[0].strip()
+                    steps.append({"text": f"{f.package} auf {fixed} oder neuer (requirements.txt / package.json / go.mod …)", "cmd": LANG_FIX[f.ecosystem].format(pkg=f.package, fixed=fixed)})
+            if comp:
+                c = comp["compose"]
+                steps.append({"text": "Danach neu bauen (holt auch ein aktuelles Basis-Image)",
+                              "cmd": f"cd {c['dir'] or '<Projektordner>'} && docker compose build --pull {c['service']} && docker compose up -d {c['service']}"})
+        else:
+            if pinned:
+                steps.append({"text": f"Im Compose-File steht die feste Version „{_tag(image)}“. Trag dort eine neuere Version ein (Versionshinweise des Herstellers), dann:", "cmd": None})
+            if comp:
+                c = comp["compose"]
+                steps.append({"text": "Neues Image holen und Container neu starten",
+                              "cmd": f"cd {c['dir'] or '<Projektordner>'} && docker compose pull {c['service']} && docker compose up -d {c['service']}"})
+                if not pinned:
+                    action = {"kind": "container_update", "params": {"container": comp["name"]},
+                              "label": f"{comp['name']}: neues Image holen und neu starten"}
+            else:
+                steps.append({"text": "Der Container wurde nicht mit Docker Compose gestartet. Image neu ziehen und den Container mit denselben Einstellungen neu erstellen",
+                              "cmd": f"docker pull {image}"})
+            steps.append({"text": "Hilft das nicht, hat der Hersteller noch kein korrigiertes Image veröffentlicht. Dann die Sperre lassen und später erneut versuchen.", "cmd": None})
+    note = (f"Für {', '.join(no_fix[:5])} gibt es noch kein Update." if no_fix else None)
+    return {"steps": steps, "action": action if (action and open_f) else None, "can_auto": can and action is not None and bool(open_f),
+            "agent_allows": can, "no_fix": note}
+
+
+def queue_action(db: Session, target: InventoryTarget, action: dict, auto: bool, by: str | None) -> VulnAction:
+    a = VulnAction(agent_id=target.agent_id, target_id=target.id, kind=action["kind"], params=json.dumps(action["params"]),
+                   label=action["label"][:300], auto=auto, created_by=by)
+    db.add(a)
+    db.flush()
+    return a
+
+
+def pending_actions(db: Session, agent: Agent) -> list[dict]:
+    """Für die Antwort an den Agenten: offene Aktionen (danach „gesendet“)."""
+    if not agent.allow_updates:
+        return []
+    out = []
+    stale = datetime.utcnow() - timedelta(hours=2)
+    for a in db.scalars(select(VulnAction).where(VulnAction.agent_id == agent.id, VulnAction.status.in_(("queued", "sent")))):
+        if a.status == "sent" and a.created_at < stale:
+            a.status, a.log, a.finished_at = "failed", "Der Agent hat sich nicht zurückgemeldet.", datetime.utcnow()
+            continue
+        out.append({"id": a.id, "kind": a.kind, **json.loads(a.params)})
+        a.status = "sent" if a.status == "queued" else a.status
+    db.commit()
+    return out
+
+
+RESULT_TEXT = {
+    "ok": ("info", "Update installiert"), "no_update": ("warn", "Kein Update verfügbar"),
+    "rolled_back": ("warn", "Update zurückgenommen"), "failed": ("warn", "Update fehlgeschlagen"),
+    "manual": ("warn", "Update nur von Hand möglich"),
+}
+
+
+def action_result(db: Session, agent: Agent, data: dict) -> None:
+    a = db.get(VulnAction, int(data.get("id") or 0))
+    if a is None or a.agent_id != agent.id:
+        return
+    status = str(data.get("status") or "")
+    if status not in ("running", *RESULT_TEXT):
+        return
+    a.status, a.log = status, str(data.get("log") or "")[:5000] or a.log
+    if status != "running":
+        a.finished_at = datetime.utcnow()
+        sev, title = RESULT_TEXT[status]
+        extra = {"ok": "\nNetworkHelper prüft gleich erneut. Ist die Lücke weg, wird eine Sperre von selbst aufgehoben.",
+                 "rolled_back": "\nDer Dienst läuft wieder mit dem alten Image. Bitte die Versionshinweise prüfen."}.get(status, "")
+        notify.raise_alert(db, sev, "vuln", f"{title}: {a.label}", (a.log or "")[-1200:] + extra,
+                           dedupe_key=f"vuln-action:{a.id}", dedupe_hours=24 * 30, commit=False)
+    db.commit()
+
+
+def auto_fix(db: Session) -> None:
+    """Bei kritischen Lücken von selbst ein Update versuchen (einmal pro Tag und Ziel)."""
+    if settings.vuln_auto_fix == "off":
+        return
+    since = datetime.utcnow() - timedelta(hours=24)
+    for t in db.scalars(select(InventoryTarget)):
+        agent = db.get(Agent, t.agent_id)
+        if not (agent and agent.allow_updates):
+            continue
+        fs = list(db.scalars(select(VulnFinding).where(VulnFinding.target_id == t.id, VulnFinding.resolved_at.is_(None),
+                                                       VulnFinding.accepted.is_(False))))
+        limit = settings.vuln_cvss_threshold if settings.vuln_auto_fix == "critical" else 7
+        trigger = [f for f in fs if (v := db.get(Vuln, f.vuln_id)) and (v.kev or (v.score or 0) >= limit)
+                   and not f.vuln_id.startswith(("EOL-",))]
+        if not trigger:
+            continue
+        if t.key == "host" and not any(f.fixed for f in trigger):
+            continue
+        recent = db.scalar(select(VulnAction.id).where(VulnAction.target_id == t.id, VulnAction.created_at >= since).limit(1))
+        if recent:
+            continue
+        plan = remedy(t, fs, agent)
+        if plan["can_auto"]:
+            a = queue_action(db, t, plan["action"], auto=True, by="automatisch")
+            log.info("Automatisches Update angestoßen: %s", a.label)
+
+
 # ---------- Hintergrund ----------
 
 def _target_label(t: InventoryTarget) -> str:
@@ -580,8 +743,12 @@ def run(db: Session) -> None:
         sev = "crit" if locked or (public and hard) else "warn"
         title = (f"Gesperrt wegen Lücke: {', '.join(locked)}" if locked else
                  f"{'Kritische ' if hard else ''}Lücke in {where.split(',')[0]}")
+        agent = db.get(Agent, t.agent_id)
+        if agent and agent.allow_updates and settings.vuln_auto_fix != "off" and (hard or settings.vuln_auto_fix == "serious"):
+            body += "\n\nNetworkHelper versucht jetzt, die Lücke per Update zu schließen, und meldet sich mit dem Ergebnis."
         notify.raise_alert(db, sev, "vuln", title, body, dedupe_key=f"vuln:{target_id}:{','.join(sorted(f.vuln_id for f in serious))}"[:200],
                            dedupe_hours=24 * 7, commit=False)
+    auto_fix(db)
     db.commit()
 
 
@@ -613,6 +780,15 @@ def overview(db: Session) -> dict:
             "score": v.score if v else None, "severity": cvss.label(v.score if v else None), "kev": bool(v and v.kev),
             "summary": v.summary if v else None, "url": v.url if v else None,
             "cves": sorted(_cves(v))[:3] if v else [], "first_seen": f.first_seen.isoformat(), "accepted": f.accepted})
+    agent_rows = {a.id: a for a in db.scalars(select(Agent))}
+    finding_rows: dict[int, list[VulnFinding]] = {}
+    for f in db.scalars(select(VulnFinding).where(VulnFinding.resolved_at.is_(None))):
+        finding_rows.setdefault(f.target_id, []).append(f)
+    actions: dict[int, list[dict]] = {}
+    for a in db.scalars(select(VulnAction).order_by(VulnAction.created_at.desc()).limit(300)):
+        actions.setdefault(a.target_id or 0, []).append({
+            "id": a.id, "label": a.label, "status": a.status, "log": a.log, "auto": a.auto, "by": a.created_by,
+            "created_at": a.created_at.isoformat(), "finished_at": a.finished_at.isoformat() if a.finished_at else None})
     items = []
     for tid, t in targets.items():
         fs = sorted(findings.get(tid, []), key=lambda x: (not x["kev"], -(x["score"] or 0)))
@@ -620,13 +796,15 @@ def overview(db: Session) -> dict:
         items.append({"id": tid, "agent": agents.get(t.agent_id), "key": t.key, "image": t.image, "label": _target_label(t),
                       "distro": t.distro, "scanner": t.scanner, "packages": t.package_count, "error": t.error,
                       "scanned_at": t.scanned_at.isoformat(), "services": svcs, "findings": fs,
-                      "exposed": any(not s["protected"] for s in svcs)})
+                      "exposed": any(not s["protected"] for s in svcs),
+                      "remedy": remedy(t, finding_rows.get(tid, []), agent_rows.get(t.agent_id)) if fs else None,
+                      "actions": actions.get(tid, [])[:5]})
     items.sort(key=lambda i: (not i["exposed"], -max([f["score"] or 0 for f in i["findings"] if not f["accepted"]] or [0]), i["label"]))
     unmapped = [{"id": s["host"]["id"], "domains": s["host"]["domains"], "forward": f"{s['host']['host']}:{s['host']['port']}"}
                 for s in services if s["target"] is None]
     q_rows = [{"id": q.id, "host_id": q.proxy_host_id, "domains": q.domains, "reason": q.reason, "auto": q.auto,
                "started_at": q.started_at.isoformat(), "released_at": q.released_at.isoformat() if q.released_at else None,
                "released_by": q.released_by, "error": q.error} for qs in quarantines.values() for q in qs]
-    return {"enabled": settings.vuln_watch, "auto": settings.vuln_auto_quarantine, "threshold": settings.vuln_cvss_threshold,
+    return {"enabled": settings.vuln_watch, "auto": settings.vuln_auto_quarantine, "auto_fix": settings.vuln_auto_fix, "threshold": settings.vuln_cvss_threshold,
             "push": notify.push_configured(), "items": items, "unmapped": unmapped, "quarantines": q_rows,
             "npm_error": npm_error, "last_scan": state.get(db, "vuln_last_scan"), "error": state.get(db, "vuln_error")}

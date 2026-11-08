@@ -31,7 +31,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 CONFIG = os.environ.get("NH_AGENT_CONFIG", "/etc/networkhelper-agent.json")
 STATE_DIR = os.environ.get("NH_AGENT_STATE", "/var/lib/networkhelper-agent")
 DEFAULTS = {
@@ -49,6 +49,7 @@ DEFAULTS = {
     "watch_interval": 300,
     "auto_update": True,      # neuere Agent-Version von NetworkHelper übernehmen
     "inventory": True,        # installierte Pakete melden (für den Lückenwächter)
+    "allow_updates": False,   # Updates auf Anweisung von NetworkHelper (nur fest eingebaute Aktionen)
     "inventory_hours": 24,
     "syft": "",               # Pfad zu syft, leer = automatisch suchen
 }
@@ -373,22 +374,28 @@ def running_containers():
         rows = [l.split("\t") for l in ps.splitlines() if l.strip()]
         if not rows:
             return {}
-        ins = subprocess.run(["docker", "inspect", "--format", "{{.Id}}\t{{.Image}}\t{{.Config.Image}}"] + [r[0] for r in rows],
+        fmt = ("{{.Id}}\t{{.Image}}\t{{.Config.Image}}\t{{index .Config.Labels \"com.docker.compose.project\"}}\t"
+               "{{index .Config.Labels \"com.docker.compose.service\"}}\t{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}\t"
+               "{{index .Config.Labels \"com.docker.compose.project.config_files\"}}")
+        ins = subprocess.run(["docker", "inspect", "--format", fmt] + [r[0] for r in rows],
                              capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         return {}
     meta = {}
     for line in ins.splitlines():
         p = line.split("\t")
-        if len(p) == 3:
-            meta[p[0]] = (p[1], p[2])
+        if len(p) >= 3:
+            meta[p[0]] = p[1:] + [""] * (7 - len(p))
     out = {}
     for r in rows:
         if r[0] not in meta:
             continue
-        image_id, image = meta[r[0]]
+        image_id, image, project, service, wdir, files = meta[r[0]][:6]
         e = out.setdefault(image_id, {"image": image, "containers": []})
-        e["containers"].append({"name": r[1], "ports": r[2] if len(r) > 2 else ""})
+        c = {"name": r[1], "ports": r[2] if len(r) > 2 else ""}
+        if project and service:
+            c["compose"] = {"project": project, "service": service, "dir": wdir, "files": files}
+        e["containers"].append(c)
     return out
 
 
@@ -427,6 +434,7 @@ class Inventory(threading.Thread):
         self.cache = {}  # image_id -> (zeit, zeilen, distro, fehler)
         self.last_full = 0.0
         self.last_sig = None
+        self.force = threading.Event()
 
     def scan_image(self, image_id):
         hit = self.cache.get(image_id)
@@ -489,14 +497,166 @@ class Inventory(threading.Thread):
             try:
                 sig = self.signature()
                 due = time.time() - self.last_full > float(self.cfg.get("inventory_hours") or 24) * 3600
-                if due or sig != self.last_sig:
+                if due or sig != self.last_sig or self.force.is_set():
+                    self.force.clear()
                     targets = self.collect()
                     self.api.post("/inventory", {"targets": targets, "complete": True, "syft": bool(self.syft)}, timeout=180)
                     self.last_full, self.last_sig = time.time(), sig
                     log("Inventur gemeldet: %d Ziele, %d Pakete" % (len(targets), sum(len(t.get("packages") or []) for t in targets)))
             except Exception as e:  # noqa: BLE001 - die Inventur darf den Agenten nie stoppen
                 log("Inventur fehlgeschlagen: %s" % e)
-            time.sleep(600)
+            self.force.wait(600)
+
+
+# ---------- Updates auf Anweisung (nur fest eingebaute Aktionen) ----------
+
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+:-]{0,127}$")
+
+
+def sh(cmd, timeout=900, env=None):
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+    return p.returncode, ((p.stdout or "") + (p.stderr or ""))[-3000:]
+
+
+def container_info(name):
+    rc, out = sh(["docker", "inspect", "--format",
+                  "{{.Image}}\t{{.Config.Image}}\t{{index .Config.Labels \"com.docker.compose.project\"}}\t"
+                  "{{index .Config.Labels \"com.docker.compose.service\"}}\t{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}\t"
+                  "{{index .Config.Labels \"com.docker.compose.project.config_files\"}}", name], 30)
+    if rc != 0:
+        raise RuntimeError("Container %s nicht gefunden" % name)
+    p = out.strip().split("\t")
+    return dict(zip(["image_id", "image", "project", "service", "dir", "files"], p + [""] * (6 - len(p))))
+
+
+def wait_healthy(name, seconds=90):
+    end = time.time() + seconds
+    state = ""
+    while time.time() < end:
+        rc, out = sh(["docker", "inspect", "--format", "{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}", name], 30)
+        state = out.strip()
+        if rc == 0 and state.startswith("running") and "starting" not in state:
+            # noch kurz beobachten, ob er gleich wieder abstürzt
+            time.sleep(15)
+            rc, out = sh(["docker", "inspect", "--format", "{{.State.Status}} {{.State.RestartCount}} {{if .State.Health}}{{.State.Health.Status}}{{end}}", name], 30)
+            parts = out.split()
+            if rc == 0 and parts and parts[0] == "running" and "unhealthy" not in parts:
+                return True, out.strip()
+            return False, out.strip()
+        time.sleep(5)
+    return False, state
+
+
+def update_container(name):
+    """Neueres Image holen und den Container über Docker Compose neu erstellen. Klappt der Start nicht: zurück."""
+    if not NAME_RE.match(name):
+        raise RuntimeError("ungültiger Containername")
+    info = container_info(name)
+    if not (info["project"] and info["service"]):
+        return "manual", "Der Container wurde nicht mit Docker Compose gestartet. Bitte von Hand aktualisieren."
+    if sh(["docker", "compose", "version"], 30)[0] == 0:
+        compose = ["docker", "compose", "-p", info["project"]]
+    elif shutil.which("docker-compose"):
+        compose = ["docker-compose", "-p", info["project"]]
+    else:
+        return "manual", "Docker Compose ist nicht installiert."
+    for f in (info["files"] or "").split(","):
+        if f and os.path.isfile(f):
+            compose += ["-f", f]
+    cwd_ok = info["dir"] and os.path.isdir(info["dir"])
+    env = dict(os.environ)
+    run = lambda args, t=900: subprocess.run(compose + args, capture_output=True, text=True, timeout=t, env=env,  # noqa: E731
+                                             cwd=info["dir"] if cwd_ok else None)
+    p = run(["pull", info["service"]])
+    logtxt = (p.stdout + p.stderr)[-1500:]
+    if p.returncode != 0:
+        return "failed", "docker compose pull fehlgeschlagen:\n" + logtxt
+    rc, new_id = sh(["docker", "image", "inspect", "--format", "{{.Id}}", info["image"]], 30)
+    if rc == 0 and new_id.strip() == info["image_id"]:
+        return "no_update", ("Es gibt kein neueres Image für %s. Entweder hat der Hersteller die Lücke noch nicht behoben, "
+                             "oder im Compose-File steht eine feste Version (dann dort eine neuere eintragen)." % info["image"])
+    p = run(["up", "-d", "--no-deps", info["service"]])
+    logtxt += "\n" + (p.stdout + p.stderr)[-1500:]
+    ok, state = (False, "up fehlgeschlagen") if p.returncode != 0 else wait_healthy(name)
+    if ok:
+        return "ok", "Aktualisiert auf %s.\n%s" % (new_id.strip()[:19], logtxt[-800:])
+    # zurück zum alten Image
+    sh(["docker", "tag", info["image_id"], info["image"]], 30)
+    p2 = run(["up", "-d", "--no-deps", info["service"]])
+    return "rolled_back", ("Der neue Container startete nicht sauber (%s). Das alte Image läuft wieder.\n%s\n%s"
+                           % (state, logtxt[-1000:], (p2.stdout + p2.stderr)[-500:]))
+
+
+def update_host_packages(sources):
+    """Systempakete aktualisieren, die zu den genannten Quellpaketen gehören (nur Upgrades, nichts Neues)."""
+    sources = {s for s in sources if NAME_RE.match(s)}
+    if not sources:
+        return "failed", "keine Pakete angegeben"
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    if shutil.which("apt-get"):
+        rc, out = sh(["dpkg-query", "-W", "-f", "${binary:Package}\t${source:Package}\t${db:Status-Abbrev}\n"], 60)
+        bins = sorted({l.split("\t")[0] for l in out.splitlines()
+                       if l.count("\t") == 2 and l.split("\t")[1] in sources and l.split("\t")[2].startswith("ii")})
+        if not bins:
+            return "failed", "Keines der Pakete ist installiert."
+        rc, out1 = sh(["apt-get", "update", "-q"], 300, env)
+        rc, out2 = sh(["apt-get", "install", "-y", "-q", "--only-upgrade", "-o", "Dpkg::Options::=--force-confold",
+                       "-o", "Dpkg::Options::=--force-confdef"] + bins, 1800, env)
+        status = "ok" if rc == 0 else "failed"
+        restart = " Ein Neustart kann nötig sein (z. B. bei Kernel oder libc)." if os.path.exists("/var/run/reboot-required") else ""
+        return status, "apt-get install --only-upgrade %s\n%s%s" % (" ".join(bins[:30]), out2[-1500:], restart)
+    if shutil.which("apk"):
+        rc, out = sh(["apk", "list", "-I"], 60)
+        names = sorted({m.group(1) for m in (re.match(r"^(\S+)-\d\S*-r\d+ \S+ \{([^}]+)\}", l) for l in out.splitlines())
+                        if m and m.group(2) in sources})
+        rc, out2 = sh(["apk", "upgrade", "--update-cache"] + (names or sorted(sources)), 1800)
+        return ("ok" if rc == 0 else "failed"), out2[-1500:]
+    return "failed", "Unbekannter Paketmanager"
+
+
+class Updater(threading.Thread):
+    def __init__(self, api, inventory):
+        super().__init__(daemon=True, name="updates")
+        self.api, self.inventory = api, inventory
+        self.queue, self.seen = [], set()
+        self.lock = threading.Lock()
+        self.wake = threading.Event()
+
+    def add(self, actions):
+        with self.lock:
+            for a in actions or []:
+                if isinstance(a, dict) and a.get("id") not in self.seen:
+                    self.seen.add(a.get("id"))
+                    self.queue.append(a)
+        self.wake.set()
+
+    def run(self):
+        while True:
+            self.wake.wait(60)
+            self.wake.clear()
+            while True:
+                with self.lock:
+                    a = self.queue.pop(0) if self.queue else None
+                if a is None:
+                    break
+                self.api.post("/action-result", {"id": a["id"], "status": "running", "log": ""})
+                try:
+                    if a.get("kind") == "container_update":
+                        status, text = update_container(str(a.get("container", "")))
+                    elif a.get("kind") == "host_packages":
+                        status, text = update_host_packages([str(x) for x in a.get("packages") or []][:200])
+                    else:
+                        status, text = "failed", "unbekannte Aktion"
+                except Exception as e:  # noqa: BLE001
+                    status, text = "failed", str(e)[:500]
+                log("Aktion %s (%s): %s" % (a.get("id"), a.get("kind"), status))
+                try:
+                    self.api.post("/action-result", {"id": a["id"], "status": status, "log": text[-3000:]})
+                except Exception as e:  # noqa: BLE001
+                    log("Ergebnis nicht gemeldet: %s" % e)
+                if self.inventory is not None:
+                    self.inventory.cache.clear()
+                    self.inventory.force.set()
 
 
 # ---------- Wachsamkeit: Anmeldungen, Benutzer, wichtige Dateien ----------
@@ -964,8 +1124,13 @@ def main():
     blocker = Blocker(cfg)
     auth = AuthWatcher()
     f2b = Fail2banSync(cfg)
-    if cfg.get("inventory", True):
-        Inventory(cfg, api).start()
+    inventory = Inventory(cfg, api) if cfg.get("inventory", True) else None
+    if inventory:
+        inventory.start()
+    updater = None
+    if cfg.get("allow_updates"):
+        updater = Updater(api, inventory)
+        updater.start()
     next_watch = time.time() + 20
     interval = max(10, int(cfg.get("interval") or 30))
     log("NetworkHelper-Agent %s startet, Server %s, %d Protokolldateien" % (VERSION, cfg["server"], len(tailer.files())))
@@ -987,7 +1152,10 @@ def main():
                     "hostname": socket.gethostname(), "version": VERSION, "info": system_info(),
                     "established": est, "listening": listen, "log_files": tailer.describe(),
                     "enforce_blocks": bool(cfg.get("enforce_blocks")), "block_status": blocker.status[:300],
+                    "allow_updates": bool(updater),
                 })
+                if updater and res.get("actions"):
+                    updater.add(res["actions"])
                 http_conf = None
                 if cfg.get("enforce_blocks") and res.get("http_conf_hash") and res.get("blocklist_hash") != blocker.applied:
                     http_conf = api.get_text(cfg["server"] + "/api/agent/http-conf")

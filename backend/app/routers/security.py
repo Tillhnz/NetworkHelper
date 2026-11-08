@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import appversions, audit, certs, detect, exposure, fail2ban, geoblock, npm, portscan, proxmox, scheduler, state, vulns
 from ..database import get_db
-from ..models import Agent, ExpectedPort, Exposure, GeoRule, Incident, PortFinding, Quarantine, SiteCheck, User, VulnFinding
+from ..models import Agent, ExpectedPort, Exposure, GeoRule, Incident, InventoryTarget, PortFinding, Quarantine, SiteCheck, User, VulnAction, VulnFinding
 from ..security import current_user, require_admin
 from ..server_settings import HOST_RE
 
@@ -498,3 +498,24 @@ def vulns_release(qid: int, admin: User = Depends(require_admin), db: Session = 
     db.commit()
     audit.record(db, admin.email, "vuln.release", q.domains)
     return {"ok": True}
+
+
+@router.post("/vulns/targets/{target_id}/fix", status_code=202)
+def vulns_fix(target_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    t = db.get(InventoryTarget, target_id)
+    if t is None:
+        raise HTTPException(404, "Nicht gefunden")
+    agent = db.get(Agent, t.agent_id)
+    fs = list(db.scalars(select(VulnFinding).where(VulnFinding.target_id == t.id, VulnFinding.resolved_at.is_(None))))
+    plan = vulns.remedy(t, fs, agent)
+    if not plan["agent_allows"]:
+        raise HTTPException(409, "Der Agent darf keine Updates ausführen. Auf dem Server den Installationsbefehl mit --allow-updates erneut ausführen.")
+    if not plan["action"]:
+        raise HTTPException(409, "Für dieses Ziel gibt es kein automatisches Update. Bitte die Schritte von Hand ausführen.")
+    busy = db.scalar(select(VulnAction.id).where(VulnAction.target_id == t.id, VulnAction.status.in_(("queued", "sent", "running"))).limit(1))
+    if busy:
+        raise HTTPException(409, "Für dieses Ziel läuft schon ein Update.")
+    a = vulns.queue_action(db, t, plan["action"], auto=False, by=admin.email)
+    db.commit()
+    audit.record(db, admin.email, "vuln.fix", a.label)
+    return {"id": a.id}

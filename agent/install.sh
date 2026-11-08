@@ -13,6 +13,9 @@
 #   --insecure          Selbst signiertes Zertifikat von NetworkHelper akzeptieren
 #   --fail2ban          fail2ban installieren und einrichten (SSH, Proxy Manager, Proxmox; Heimnetz und eigene IP ausgenommen)
 #   --no-fail2ban       Die NetworkHelper-Regeln aus fail2ban wieder entfernen
+#   --allow-updates     NetworkHelper darf Lücken per Update schließen (Container neu ziehen, Systempakete
+#                       aktualisieren; nur diese fest eingebauten Aktionen, keine beliebigen Befehle)
+#   --no-allow-updates  wieder ausschalten
 #   --no-inventory      Keine Inventur der installierten Pakete (Lückenwächter) und kein Syft
 #   --uninstall         Agent entfernen
 set -euo pipefail
@@ -20,7 +23,7 @@ set -euo pipefail
 DIR=/opt/networkhelper-agent
 CONF=/etc/networkhelper-agent.json
 UNIT=/etc/systemd/system/networkhelper-agent.service
-SERVER="" TOKEN="" ENFORCE="" LOGS="" INSECURE="" UNINSTALL="" FAIL2BAN="" INVENTORY=""
+SERVER="" TOKEN="" ENFORCE="" LOGS="" INSECURE="" UNINSTALL="" FAIL2BAN="" INVENTORY="" UPDATES=""
 SYFT_VERSION=1.55.0
 SYFT_SHA_amd64=bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
 SYFT_SHA_arm64=929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304
@@ -41,6 +44,8 @@ while [ $# -gt 0 ]; do
     --fail2ban) FAIL2BAN=true; shift ;;
     --no-fail2ban) FAIL2BAN=false; shift ;;
     --inventory) INVENTORY=true; shift ;;
+    --allow-updates) UPDATES=true; shift ;;
+    --no-allow-updates) UPDATES=false; shift ;;
     --no-inventory) INVENTORY=false; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
     *) die "Unbekannte Option: $1" ;;
@@ -88,6 +93,11 @@ curl "${curl_opts[@]}" "$SERVER/api/agent/files/nh-agent.py" -o "$DIR/nh-agent.p
 python3 -m py_compile "$DIR/nh-agent.py.new" || die "Die geladene Datei ist kein gültiges Python."
 mv "$DIR/nh-agent.py.new" "$DIR/nh-agent.py"
 chmod 755 "$DIR/nh-agent.py"
+
+if [ -z "$UPDATES" ]; then
+  UPDATES=false
+  [ -f "$CONF" ] && UPDATES="$(python3 -c "import json;print(str(json.load(open('$CONF')).get('allow_updates', False)).lower())")"
+fi
 
 # ---------- Syft für die Inventur (Lückenwächter) ----------
 if [ -z "$INVENTORY" ]; then
@@ -164,7 +174,7 @@ fi
 
 # ---------- Konfiguration ----------
 umask 077
-INVENTORY="$INVENTORY" SERVER="$SERVER" TOKEN="$TOKEN" GLOBS="$GLOBS" ENFORCE="$ENFORCE" NPM_DIR="$NPM_DIR" NPM_CONTAINER="$NPM_CONTAINER" INSECURE="${INSECURE:-false}" CONF="$CONF" python3 - <<'PY'
+UPDATES="$UPDATES" INVENTORY="$INVENTORY" SERVER="$SERVER" TOKEN="$TOKEN" GLOBS="$GLOBS" ENFORCE="$ENFORCE" NPM_DIR="$NPM_DIR" NPM_CONTAINER="$NPM_CONTAINER" INSECURE="${INSECURE:-false}" CONF="$CONF" python3 - <<'PY'
 import json, os
 conf = os.environ["CONF"]
 cfg = {}
@@ -180,6 +190,7 @@ cfg.update({
     "npm_data_dir": os.environ["NPM_DIR"], "npm_container": os.environ["NPM_CONTAINER"],
     "insecure": os.environ["INSECURE"] == "true",
     "inventory": os.environ["INVENTORY"] == "true",
+    "allow_updates": os.environ["UPDATES"] == "true",
 })
 with open(conf, "w") as f:
     json.dump(cfg, f, indent=2)
@@ -221,5 +232,6 @@ fi
 echo
 echo "Sperrliste im Proxy Manager: $([ "$ENFORCE" = true ] && echo an || echo aus)  (ändern: Befehl erneut mit --enforce-blocks oder --no-enforce-blocks)"
 echo "fail2ban:                    $(command -v fail2ban-client >/dev/null 2>&1 && echo installiert || echo nicht installiert)  (einrichten: Befehl erneut mit --fail2ban)"
+echo "Updates durch NetworkHelper: $([ "$UPDATES" = true ] && echo "erlaubt  (aus: --no-allow-updates)" || echo "nicht erlaubt  (an: --allow-updates)")"
 echo "Inventur (Lückenwächter):    $([ "$INVENTORY" = true ] && echo "an$([ -x "$SYFT" ] && echo ', mit Syft' || echo ', nur Systempakete')" || echo aus)  (ausschalten: --no-inventory)"
 echo "Protokoll des Agenten:       journalctl -u networkhelper-agent -f"

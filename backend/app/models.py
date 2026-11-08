@@ -88,6 +88,7 @@ class Agent(Base):
     block_status: Mapped[str | None] = mapped_column(String(300), nullable=True)
     lines_total: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     parse_errors: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    allow_updates: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     fail2ban: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: Status und Sperren von fail2ban
 
 
@@ -380,3 +381,21 @@ class Quarantine(Base):
     released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     released_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
     error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+
+class VulnAction(Base):
+    """Ein Update, das ein Agent ausführen soll, um Lücken zu schließen."""
+    __tablename__ = "vuln_actions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
+    target_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(30))  # container_update | host_packages
+    params: Mapped[str] = mapped_column(Text)  # JSON
+    label: Mapped[str] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(20), default="queued")  # queued, sent, running, ok, no_update, rolled_back, failed, manual
+    log: Mapped[str | None] = mapped_column(Text, nullable=True)
+    auto: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

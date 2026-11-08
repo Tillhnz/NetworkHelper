@@ -572,3 +572,43 @@ def test_push_ntfy(monkeypatch):
     url, body, headers = sent[0]
     assert url == "https://ntfy.sh" and body["topic"] == "nh-test" and body["priority"] == 5
     assert body["click"].endswith("/security?tab=vulns") and headers["Authorization"] == "Bearer tk_x"
+
+
+def test_vuln_remedy_and_auto_fix(monkeypatch):
+    from app import vulns
+    from app.config import settings
+    from app.models import Alert, InventoryTarget, VulnAction
+    log4j = ("Maven", "org.apache.logging.log4j:log4j-core", "2.14.1")
+    osv = {log4j: [{"id": "GHSA-log4j"}], ("Debian:12", "openssl", "3.0.11"): [{"id": "DEBIAN-CVE-x"}]}
+    db, a, calls, hosts = _vuln_env(monkeypatch, osv)
+    monkeypatch.setattr(settings, "vuln_auto_fix", "critical")
+    a.allow_updates = True
+    db.commit()
+    comp = {"project": "app", "service": "web", "dir": "/opt/app", "files": "/opt/app/compose.yml"}
+    vulns.ingest(db, a, {"complete": True, "targets": [
+        {"key": "image:abc", "image": "ghcr.io/x/app:latest", "distro": "debian:12",
+         "containers": [{"name": "app-web-1", "ports": "0.0.0.0:8080->8000/tcp", "compose": comp}],
+         "packages": [["java-archive", "log4j-core", "2.14.1", "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"]]},
+        {"key": "image:def", "image": "ghcr.io/x/pinned:1.2.3", "distro": "debian:12",
+         "containers": [{"name": "pinned", "ports": "", "compose": {**comp, "service": "pinned"}}],
+         "packages": [["java-archive", "log4j-core", "2.14.1", "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"]]},
+        {"key": "host", "distro": "debian:12", "packages": [["deb", "openssl", "3.0.11"]]}]})
+    vulns.run(db)
+    acts = db.query(VulnAction).all()
+    assert [(x.kind, x.auto) for x in acts] == [("container_update", True)]  # festes Tag: kein automatisches Update
+    assert "versucht jetzt" in db.query(Alert).filter(Alert.kind == "vuln", Alert.severity == "crit").first().body
+    pinned = db.query(InventoryTarget).filter_by(key="image:def").one()
+    plan = vulns.remedy(pinned, pinned and db.query(vulns.VulnFinding).filter_by(target_id=pinned.id).all(), a)
+    assert plan["action"] is None and "feste Version" in plan["steps"][0]["text"]
+    host = db.query(InventoryTarget).filter_by(key="host").one()
+    plan = vulns.remedy(host, db.query(vulns.VulnFinding).filter_by(target_id=host.id).all(), a)
+    assert plan["action"] is None and plan["no_fix"]  # Debian-Lücke ohne Korrektur
+    sent = vulns.pending_actions(db, a)
+    assert sent == [{"id": acts[0].id, "kind": "container_update", "container": "app-web-1"}]
+    assert vulns.pending_actions(db, a) == sent  # bis zum Ergebnis erneut zustellen (Agent ignoriert Doppelte)
+    vulns.action_result(db, a, {"id": acts[0].id, "status": "no_update", "log": "Es gibt kein neueres Image"})
+    db.refresh(acts[0])
+    assert acts[0].status == "no_update" and acts[0].finished_at
+    assert db.query(Alert).filter(Alert.title.like("Kein Update verfügbar%")).count() == 1
+    vulns.run(db)  # innerhalb von 24 h kein zweiter automatischer Versuch
+    assert db.query(VulnAction).count() == 1

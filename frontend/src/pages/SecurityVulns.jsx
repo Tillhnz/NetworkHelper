@@ -30,6 +30,51 @@ function Finding({ f, isAdmin, reload }) {
   );
 }
 
+const ACTION = {
+  queued: ["wartet auf den Agenten", "muted"], sent: ["an den Agenten geschickt", "muted"], running: ["läuft …", "soon"],
+  ok: ["erfolgreich", "ok"], no_update: ["kein Update verfügbar", "soon"], rolled_back: ["zurückgenommen", "due"],
+  failed: ["fehlgeschlagen", "due"], manual: ["nur von Hand", "soon"],
+};
+
+function Remedy({ t, isAdmin, reload }) {
+  const r = t.remedy;
+  const busy = t.actions.some((a) => ["queued", "sent", "running"].includes(a.status));
+  async function fix() {
+    try { await api.post(`/security/vulns/targets/${t.id}/fix`, {}); toast("Update angestoßen. Der Agent meldet sich in etwa einer Minute."); reload(); } catch (e) { toast(e.message, "error"); }
+  }
+  async function copy(cmd) {
+    try { await navigator.clipboard.writeText(cmd); toast("Befehl kopiert."); } catch { toast("Kopieren nicht möglich, bitte markieren.", "error"); }
+  }
+  return (
+    <div className="remedy">
+      <h3 className="sub-title">So schließt du die Lücken</h3>
+      {isAdmin && r.action && (
+        r.agent_allows
+          ? <p><button className="btn primary small" onClick={fix} disabled={busy}>{busy ? "Update läuft …" : "Jetzt automatisch aktualisieren"}</button> <span className="muted small">{r.action.label}. Startet der Dienst danach nicht sauber, kehrt der Agent zur alten Version zurück.</span></p>
+          : <p className="small muted">Ein Klick genügt, wenn der Agent Updates ausführen darf: auf diesem Server den Installationsbefehl mit <span className="mono">--allow-updates</span> erneut ausführen.</p>
+      )}
+      <ol className="small steps-list">
+        {r.steps.map((s, i) => (
+          <li key={i}>{s.text}{s.cmd && <div className="cmd"><code>{s.cmd}</code><button className="link small" onClick={() => copy(s.cmd)}>Kopieren</button></div>}</li>
+        ))}
+      </ol>
+      {r.no_fix && <p className="small muted">{r.no_fix} Hier hilft nur abwarten, die Sperre lassen oder das Risiko bewusst hinnehmen.</p>}
+      {t.actions.length > 0 && (
+        <ul className="plain-list small actions">
+          {t.actions.map((a) => {
+            const [txt, tone] = ACTION[a.status] || [a.status, "muted"];
+            return (
+              <li key={a.id}><span className="grow">{a.label} <span className="muted">· {a.auto ? "automatisch" : a.by} · {fmtAgo(a.created_at)}</span>
+                {a.log && <details><summary>Protokoll</summary><pre className="code-block">{a.log}</pre></details>}</span>
+                <Pill tone={tone}>{txt}</Pill></li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Target({ t, isAdmin, reload, quarantined }) {
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
@@ -63,6 +108,7 @@ function Target({ t, isAdmin, reload, quarantined }) {
           {t.findings.length > shown.length && !all && (
             <button className="link small" onClick={() => setAll(true)}>{t.findings.length - shown.length} weitere mit geringer oder unbekannter Schwere zeigen</button>
           )}
+          {t.remedy && active.length > 0 && <Remedy t={t} isAdmin={isAdmin} reload={reload} />}
           {isAdmin && t.services.filter((s) => !quarantined.has(s.id)).map((s) => (
             <button key={s.id} className="btn small" onClick={() => lock(s)}>{s.domains[0]} vorsichtshalber sperren</button>
           ))}
@@ -76,11 +122,12 @@ export default function Vulns({ isAdmin }) {
   const [d, setD] = useState(null);
   const load = useCallback(() => api.get("/security/vulns").then(setD).catch((e) => toast(e.message, "error")), []);
   useEffect(() => { load(); }, [load]);
+  const actionBusy = d?.items?.some((t) => t.actions?.some((a) => ["queued", "sent", "running"].includes(a.status)));
   useEffect(() => {
-    if (!d?.running) return undefined;
-    const id = setInterval(load, 3000);
+    if (!d?.running && !actionBusy) return undefined;
+    const id = setInterval(load, d?.running ? 3000 : 8000);
     return () => clearInterval(id);
-  }, [d?.running, load]);
+  }, [d?.running, actionBusy, load]);
 
   async function check() {
     try { await api.post("/security/vulns/check", {}); setD((x) => ({ ...x, running: true })); } catch (e) { toast(e.message, "error"); }
