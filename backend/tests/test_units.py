@@ -518,3 +518,45 @@ def test_unquarantine_releases_everything(monkeypatch):
     assert all(q.released_at for q in db.query(Quarantine))
     assert db.query(Alert).filter(Alert.title.like("Wieder erreichbar%")).count() == 1
     assert unquarantine.run(db) == {"done": True}
+
+
+def test_container_apps_detected():
+    from app import appversions as av
+    assert av.image_app("ghcr.io/immich-app/immich-server:release").key == "immich"
+    assert av.image_app("ghcr.io/paperless-ngx/paperless-ngx:latest").key == "paperless"
+    assert av.image_app("vaultwarden/server:1.34.3").key == "vaultwarden"
+    assert av.image_app("jc21/nginx-proxy-manager:latest").key == "npm"
+    assert av.image_app("lscr.io/linuxserver/jellyfin:latest").key == "jellyfin"
+    assert av.image_app("postgres:16-alpine") is None and av.image_app("bikehelper-backend") is None
+    assert av.container_version({"image": "x/y:latest", "version": "v2.3.1"}) == "2.3.1"
+    assert av.container_version({"image": "lscr.io/linuxserver/jellyfin:latest", "version": "",
+                                 "build_version": "Linuxserver.io version:- 10.10.7ubu2404-ls70 Build-date:- 2026-10-01"}) == "10.10.7"
+    assert av.container_version({"image": "vaultwarden/server:1.34.3", "version": ""}) == "1.34.3"
+    assert av.container_version({"image": "vaultwarden/server:latest", "version": ""}) is None
+
+
+def test_app_push_only_with_update(monkeypatch):
+    import json as _json
+    from app import appversions as av
+    from app.models import Agent, Alert
+    db = _db_with_ip()
+    db.add(Agent(name="docker", token_hash="h", last_seen=datetime.utcnow(), info=_json.dumps({"docker": [
+        {"name": "immich_server", "image": "ghcr.io/immich-app/immich-server:release", "version": "v1.130.0"},
+        {"name": "vaultwarden", "image": "vaultwarden/server:1.34.3", "version": ""}]})))
+    db.commit()
+    rel = {"immich-app/immich": "v1.131.0", "dani-garcia/vaultwarden": "1.34.3"}
+    adv = {"immich-app/immich": [{"id": "GHSA-1", "summary": "Zugriff ohne Anmeldung", "severity": "high", "url": "u", "cve": "CVE-1",
+                                  "vulns": [{"package": "immich", "range": "< 1.131.0", "patched": "1.131.0"}]}],
+           "dani-garcia/vaultwarden": [{"id": "GHSA-2", "summary": "x", "severity": "high", "url": "u", "cve": None,
+                                        "vulns": [{"package": "vaultwarden", "range": "<= 1.34.3", "patched": ""}]}]}
+    monkeypatch.setattr(av, "latest_release", lambda db, repo: {"version": rel[repo], "url": "r"})
+    monkeypatch.setattr(av, "advisories", lambda db, repo: adv.get(repo, []))
+    monkeypatch.setattr(av, "own_repos", lambda db: [])
+    monkeypatch.setattr(av.npm, "configured", lambda: False)
+    monkeypatch.setattr(av.settings, "npm_url", "")
+    res = av.run(db)
+    names = {r["app"]: r for r in res["items"]}
+    assert names["immich"]["status"] == "vulnerable" and names["immich"]["source"] == "container"
+    alerts = {a.title: a.severity for a in db.query(Alert).filter(Alert.kind == "apps")}
+    assert alerts == {"Update mit Sicherheitskorrektur: Immich 1.130.0 → v1.131.0": "crit",
+                      "Vaultwarden 1.34.3: bekannte Lücke, noch kein Update": "info"}

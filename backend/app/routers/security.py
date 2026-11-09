@@ -278,7 +278,8 @@ def apps_status(user: User = Depends(current_user), db: Session = Depends(get_db
     from ..config import settings
     data = state.get(db, "appversions") or {}
     return {"enabled": settings.app_check_enabled, "running": scheduler.JOBS["appversions"].running, "checked": data.get("checked"),
-            "items": data.get("items", []), "known_apps": [a.name for a in appversions.APPS]}
+            "items": data.get("items", []), "own": data.get("own", []),
+            "known_apps": sorted({a.name for a in appversions.APPS + appversions.CONTAINER_APPS} | {appversions.NPM_APP.name})}
 
 
 @router.post("/apps/check", status_code=202)

@@ -13,6 +13,32 @@ const STATUS = {
   current: ["Aktuell", "ok", 5],
 };
 
+const SEC = { success: ["keine bekannten Lücken", "ok"], failure: ["Lücke ohne automatische Korrektur", "due"], none: ["Prüfung nicht eingerichtet", "muted"] };
+
+function OwnRepos({ items }) {
+  if (!items?.length) return null;
+  return (
+    <section className="panel">
+      <h2>Deine eigenen Apps (GitHub)</h2>
+      <p className="muted small">Pakete prüft GitHub jeden Tag, kleine Sicherheitskorrekturen übernimmt Dependabot selbst. Auf deinen Server kommen sie mit dem Update-Knopf der jeweiligen App, die dich per Push erinnert.</p>
+      <ul className="plain-list own-repos">
+        {items.map((r) => {
+          const [text, tone] = SEC[r.security] || [r.security || "unbekannt", "muted"];
+          return (
+            <li key={r.repo}>
+              <span className="grow"><a href={r.url} target="_blank" rel="noreferrer noopener"><strong>{r.repo.split("/")[1]}</strong></a>
+                <span className="muted small block">
+                  {r.error ? r.error : <>Sicherheitsprüfung {r.security_at ? fmtAgo(r.security_at) : ""}{r.dependabot_open ? ` · ${r.dependabot_open} offene Dependabot-Vorschläge` : ""}</>}
+                </span></span>
+              {r.security_url ? <a href={r.security_url} target="_blank" rel="noreferrer noopener"><Pill tone={tone}>{text}</Pill></a> : <Pill tone={tone}>{text}</Pill>}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export default function Apps({ isAdmin }) {
   const [d, setD] = useState(null);
   const [open, setOpen] = useState(null);
@@ -43,14 +69,15 @@ export default function Apps({ isAdmin }) {
               : behind.length ? `${behind.length === 1 ? "Für eine App gibt" : `Für ${behind.length} Apps gibt`} es Updates` : "Alle erkannten Apps sind aktuell"}
               {" "}<InfoTip k="app_versions" /></h2>
             <p className="muted">{d.checked ? <>Zuletzt geprüft: {fmtAgo(d.checked)} · </> : null}
-              Veraltete Apps sind der häufigste Weg, wie Heimserver tatsächlich übernommen werden. NetworkHelper liest die Version deiner Apps ab und vergleicht sie mit der neuesten Version und mit veröffentlichten Sicherheitswarnungen.</p>
+              Veraltete Apps sind der häufigste Weg, wie Heimserver tatsächlich übernommen werden. NetworkHelper liest die Version deiner Apps ab (aus den Containern, die die Agenten melden, und über deine Domains) und vergleicht sie mit der neuesten Version und mit veröffentlichten Sicherheitswarnungen.
+              {" "}<strong>Eine Push-Nachricht kommt nur, wenn deine Version eine bekannte Lücke hat und es ein Update gibt.</strong> NetworkHelper ändert dabei nichts selbst.</p>
           </div>
           {isAdmin && <button className="btn primary" onClick={check} disabled={d.running}>{d.running ? "Prüfe …" : "Jetzt prüfen"}</button>}
         </div>
       </section>
 
       {d.checked && apps.length === 0 ? (
-        <EmptyState title="Keine bekannte App erkannt" text={`Erkannt werden zurzeit: ${d.known_apps.join(", ")} und der Nginx Proxy Manager.`} />
+        <EmptyState title="Keine bekannte App erkannt" text={`Erkannt werden zurzeit: ${d.known_apps.join(", ")}. Container werden über die Agenten erkannt.`} />
       ) : (
         <section className="panel">
           <h2>Deine Apps</h2>
@@ -63,8 +90,9 @@ export default function Apps({ isAdmin }) {
                   <button className="app-head" onClick={() => setOpen(open === key ? null : key)} aria-expanded={open === key}>
                     <span className="grow">
                       <strong>{a.name}</strong> <span className="muted small">{a.host}</span>
+                      {a.image && <span className="muted small mono block">{a.image}</span>}
                       <span className="small block">
-                        {a.version ? <>Installiert: <span className="mono">{a.version}</span></> : "Version ohne Anmeldung nicht ablesbar"}
+                        {a.version ? <>Installiert: <span className="mono">{a.version}</span></> : a.source === "container" ? "Version nicht ablesbar (Image ohne Versionsangabe, z. B. Tag „latest“)" : "Version ohne Anmeldung nicht ablesbar"}
                         {a.latest && <> · Neueste: <span className="mono">{a.latest.replace(/^v/, "")}</span></>}
                       </span>
                     </span>
@@ -96,10 +124,11 @@ export default function Apps({ isAdmin }) {
             })}
           </ul>
           {other.length > 0 && (
-            <p className="muted small">Ohne erkannte App: {other.map((o) => o.host + (o.error ? ` (${o.error})` : "")).join(", ")}. Erkannt werden zurzeit {d.known_apps.join(", ")} und der Nginx Proxy Manager.</p>
+            <p className="muted small">Ohne erkannte App: {other.map((o) => o.host + (o.error ? ` (${o.error})` : "")).join(", ")}. Erkannt werden zurzeit {d.known_apps.join(", ")}.</p>
           )}
         </section>
       )}
+      <OwnRepos items={d.own} />
     </>
   );
 }

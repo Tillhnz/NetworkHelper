@@ -67,8 +67,8 @@ class App:
     key: str
     name: str
     repo: str | None  # GitHub-Repository für Releases
-    path: str
-    detect: Callable[[httpx.Response], str | None | bool]  # Version, True = erkannt ohne Version, None = nicht diese App
+    path: str | None  # öffentlicher Versions-Endpunkt (None = nur über Container erkennbar)
+    detect: Callable[[httpx.Response], str | None | bool] | None  # Version, True = ohne Version, None = nicht diese App
     update_hint: str
     advisory_repo: str | None = None
     advisory_package: str | None = None  # nur Warnungen zu diesem Paket (wenn das Repository mehrere enthält)
@@ -165,7 +165,27 @@ APPS = [
     App("proxmox", "Proxmox VE", None, "/", _proxmox,
         "Proxmox: Rechenzentrum → Knoten → Updates → Aktualisieren und Upgrade. Proxmox sollte besser gar nicht öffentlich erreichbar sein."),
 ]
-APP_BY_KEY = {a.key: a for a in APPS}
+_DOCKER_HINT = "{name}: neues Image ziehen und neu starten (docker compose pull && docker compose up -d). Vorher die Release-Hinweise lesen."
+CONTAINER_APPS = [
+    App("paperless", "Paperless-ngx", "paperless-ngx/paperless-ngx", None, None,
+        "Paperless-ngx: Datenbank sichern, dann docker compose pull && docker compose up -d. Paperless sollte nicht öffentlich erreichbar sein."),
+    App("adguard", "AdGuard Home", "AdguardTeam/AdGuardHome", None, None, "AdGuard Home: Einstellungen → Allgemein → nach Updates suchen, oder neues Image ziehen."),
+    App("portainer", "Portainer", "portainer/portainer", None, None, _DOCKER_HINT.format(name="Portainer") + " Portainer gehört nie ins Internet."),
+    App("uptimekuma", "Uptime Kuma", "louislam/uptime-kuma", None, None, _DOCKER_HINT.format(name="Uptime Kuma")),
+    App("mealie", "Mealie", "mealie-recipes/mealie", None, None, _DOCKER_HINT.format(name="Mealie")),
+    App("n8n", "n8n", "n8n-io/n8n", None, None, _DOCKER_HINT.format(name="n8n")),
+    App("frigate", "Frigate", "blakeblackshear/frigate", None, None, _DOCKER_HINT.format(name="Frigate")),
+    App("zigbee2mqtt", "Zigbee2MQTT", "Koenkk/zigbee2mqtt", None, None, _DOCKER_HINT.format(name="Zigbee2MQTT")),
+    App("openwebui", "Open WebUI", "open-webui/open-webui", None, None, _DOCKER_HINT.format(name="Open WebUI")),
+    App("stirlingpdf", "Stirling-PDF", "Stirling-Tools/Stirling-PDF", None, None, _DOCKER_HINT.format(name="Stirling-PDF")),
+    App("actual", "Actual Budget", "actualbudget/actual", None, None, _DOCKER_HINT.format(name="Actual Budget")),
+    App("syncthing", "Syncthing", "syncthing/syncthing", None, None, _DOCKER_HINT.format(name="Syncthing")),
+    App("pihole", "Pi-hole", "pi-hole/docker-pi-hole", None, None, _DOCKER_HINT.format(name="Pi-hole")),
+    App("nodered", "Node-RED", "node-red/node-red", None, None, _DOCKER_HINT.format(name="Node-RED")),
+    App("mosquitto", "Mosquitto", None, None, None, _DOCKER_HINT.format(name="Mosquitto")),
+    App("traefik", "Traefik", "traefik/traefik", None, None, _DOCKER_HINT.format(name="Traefik")),
+]
+APP_BY_KEY = {a.key: a for a in APPS + CONTAINER_APPS}
 NPM_APP = App("npm", "Nginx Proxy Manager", "NginxProxyManager/nginx-proxy-manager", "/api/", lambda r: None,
               "Proxy Manager: im Container docker compose pull && docker compose up -d (Image jc21/nginx-proxy-manager:latest).")
 
@@ -173,6 +193,8 @@ NPM_APP = App("npm", "Nginx Proxy Manager", "NginxProxyManager/nginx-proxy-manag
 def detect_host(host: str, client: httpx.Client) -> dict | None:
     """Erste passende App für einen Hostnamen."""
     for app in APPS:
+        if not app.path:
+            continue
         try:
             r = client.get(f"https://{host}{app.path}")
         except httpx.HTTPError as e:
@@ -188,6 +210,74 @@ def detect_host(host: str, client: httpx.Client) -> dict | None:
         if found:
             return {"app": app.key, "version": found if isinstance(found, str) else None}
     return None
+
+
+# Image-Name (ohne Registry und Tag) -> App
+IMAGES = [
+    (r"(^|/)immich-server$", "immich"), (r"paperless-ngx$", "paperless"), (r"(^|/)vaultwarden/server$|(^|/)vaultwarden$", "vaultwarden"),
+    (r"nginx-proxy-manager$", "npm"), (r"home-assistant$", "homeassistant"), (r"(^|/)jellyfin$", "jellyfin"),
+    (r"(^|/)nextcloud$", "nextcloud"), (r"grafana/grafana(-oss)?$", "grafana"), (r"adguardhome$", "adguard"),
+    (r"portainer/portainer-(ce|ee)$", "portainer"), (r"uptime-kuma$", "uptimekuma"), (r"(^|/)mealie$", "mealie"),
+    (r"n8nio/n8n$|n8n-io/n8n$", "n8n"), (r"(^|/)frigate$", "frigate"), (r"zigbee2mqtt$", "zigbee2mqtt"),
+    (r"open-webui$", "openwebui"), (r"stirling-pdf$|s-pdf$", "stirlingpdf"), (r"actual-server$", "actual"),
+    (r"(^|/)syncthing$", "syncthing"), (r"pihole/pihole$", "pihole"), (r"node-red$", "nodered"),
+    (r"eclipse-mosquitto$", "mosquitto"), (r"(^|/)traefik$", "traefik"), (r"audiobookshelf$", "audiobookshelf"),
+    (r"(^|/)navidrome$", "navidrome"), (r"(^|/)gitea$", "gitea"), (r"forgejo$", "forgejo"),
+]
+SEMVER = re.compile(r"^v?\d+\.\d+(\.\d+)?([.-].*)?$")
+
+
+def image_app(image: str) -> App | None:
+    name = image.split("@")[0]
+    last = name.rsplit("/", 1)[-1]
+    if ":" in last:
+        name = name[: name.rfind(":")]
+    if name.count("/") >= 2 or ("." in name.split("/")[0] and "/" in name):
+        name = name.split("/", 1)[1]  # Registry weglassen (ghcr.io/…, lscr.io/…)
+    name = name.lower().removeprefix("linuxserver/")
+    for pattern, key in IMAGES:
+        if re.search(pattern, name):
+            return NPM_APP if key == "npm" else APP_BY_KEY.get(key)
+    return None
+
+
+def container_version(c: dict) -> str | None:
+    """Version aus dem OCI-Label, dem Linuxserver-Label oder einem Versions-Tag."""
+    v = (c.get("version") or "").strip()
+    if v and parse_version(v) and v.lower() not in ("latest", "main", "stable"):
+        return v.lstrip("v")
+    b = c.get("build_version") or ""
+    m = re.search(r"version:-\s*v?([\d.]+)", b)
+    if m:
+        return m.group(1)
+    image = c.get("image") or ""
+    last = image.split("@")[0].rsplit("/", 1)[-1]
+    tag = last.split(":", 1)[1] if ":" in last else ""
+    return tag.lstrip("v").split("-ls")[0] if SEMVER.match(tag) else None
+
+
+def from_agents(db: Session) -> list[dict]:
+    """Bekannte Apps in den Containern, die die Agenten melden."""
+    import json
+    from .models import Agent
+    seen, out = set(), []
+    for a in db.scalars(select(Agent).where(Agent.last_seen.is_not(None))):
+        try:
+            containers = json.loads(a.info or "{}").get("docker") or []
+        except ValueError:
+            continue
+        for c in containers:
+            app = image_app(str(c.get("image") or ""))
+            if app is None:
+                continue
+            version = container_version(c)
+            key = (app.key, version)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"host": f"{a.name} · {c.get('name')}", "source": "container", "app_key": app.key, "version": version,
+                        "image": c.get("image")})
+    return out
 
 
 def npm_version() -> str | None:
@@ -285,31 +375,97 @@ def evaluate(db: Session, app: App, version: str | None) -> dict:
             "advisories": hits[:10], "hint": app.update_hint}
 
 
+def newer_available(r: dict) -> bool:
+    v, l = parse_version(r.get("version")), parse_version(r.get("latest"))
+    return bool(v and l and _cmp(l, v) > 0)
+
+
+def notify_results(db: Session, results: list[dict]) -> None:
+    """Push nur, wenn die installierte Version bekannte Lücken hat UND es eine neuere Version gibt."""
+    for r in results:
+        hits = r.get("advisories") or []
+        if not hits:
+            continue
+        worst = "crit" if any(a["severity"] in ("critical", "high") for a in hits) else "warn"
+        lines = "\n".join(f"• {a['summary']} ({a['severity']}{', ' + a['cve'] if a.get('cve') else ''}), behoben in {a.get('patched') or '?'}"
+                          for a in hits[:5])
+        where = r.get("host") or ""
+        if newer_available(r):
+            notify.raise_alert(db, worst, "apps", f"Update mit Sicherheitskorrektur: {r['name']} {r['version']} → {r['latest']}",
+                               f"Läuft auf: {where}\nBekannte Lücken in deiner Version:\n{lines}\n\nSo aktualisierst du: {r['hint']}"
+                               + (f"\nVersionshinweise: {r['release_url']}" if r.get("release_url") else ""),
+                               dedupe_key=f"app-upd:{r['app']}:{r['version']}:{r.get('latest')}", dedupe_hours=24 * 30)
+        else:
+            notify.raise_alert(db, "info", "apps", f"{r['name']} {r['version']}: bekannte Lücke, noch kein Update",
+                               f"Läuft auf: {where}\n{lines}\n\nSobald es ein Update gibt, kommt eine Push-Nachricht.",
+                               dedupe_key=f"app-noupd:{r['app']}:{r['version']}", dedupe_hours=24 * 30)
+
+
+# ---------- Eigene Apps auf GitHub ----------
+
+def own_repos(db: Session) -> list[dict]:
+    """Stand der Sicherheitsprüfung und offene Dependabot-Vorschläge deiner eigenen Repositories."""
+    out = []
+    for repo in [r.strip() for r in (settings.own_repos or "").split(",") if r.strip()][:15]:
+        key = f"gh_own:{repo}"
+        cached, at = state.get_with_time(db, key)
+        if cached and at and datetime.utcnow() - at < timedelta(hours=CACHE_HOURS):
+            out.append(cached)
+            continue
+        item = {"repo": repo, "url": f"https://github.com/{repo}"}
+        try:
+            data = _gh(f"/repos/{repo}/actions/workflows/security.yml/runs?branch=main&per_page=1")
+            runs = (data.get("workflow_runs") if isinstance(data, dict) else None) or []
+            if runs:
+                item.update(security=runs[0].get("conclusion") or runs[0].get("status"), security_url=runs[0].get("html_url"),
+                            security_at=runs[0].get("updated_at"), run_id=runs[0].get("id"))
+            else:
+                item["security"] = "none"
+            prs = _gh(f"/repos/{repo}/pulls?state=open&per_page=50")
+            item["dependabot_open"] = sum(1 for p in prs if isinstance(p, dict) and (p.get("user") or {}).get("login") == "dependabot[bot]")
+        except (httpx.HTTPError, ValueError) as e:
+            item["error"] = str(e)[:120]
+        state.put(db, key, item)
+        out.append(item)
+        if item.get("security") == "failure":
+            notify.raise_alert(db, "warn", "apps", f"Bekannte Lücke in deiner App {repo.split('/')[-1]}",
+                               "Die tägliche Sicherheitsprüfung auf GitHub ist rot: In einem Paket gibt es eine Lücke, für die "
+                               "Dependabot keine automatische Korrektur übernehmen konnte (oft ein großer Versionssprung).\n"
+                               f"Details: {item.get('security_url')}", dedupe_key=f"own-sec:{repo}:{item.get('run_id')}", dedupe_hours=24 * 30)
+    return out
+
+
 def run(db: Session) -> dict:
     hosts = list(db.scalars(select(SiteCheck.host).where(SiteCheck.enabled.is_(True))))
     with httpx.Client(timeout=8, verify=False, follow_redirects=False, headers={"User-Agent": UA}) as client:
         with ThreadPoolExecutor(max_workers=4) as pool:
             found = dict(zip(hosts, pool.map(lambda h: detect_host(h, client), hosts)))
     results = []
+    # Container sind die genaueste Quelle (Version aus dem Image)
+    containers = from_agents(db)
+    for c in containers:
+        app = NPM_APP if c["app_key"] == "npm" else APP_BY_KEY[c["app_key"]]
+        results.append({"host": c["host"], "source": "container", "image": c["image"], **evaluate(db, app, c["version"])})
+    have = {(r["app"], r.get("version")) for r in results}
     for host, f in found.items():
         if not f:
-            results.append({"host": host, "app": None, "status": "none"})
+            results.append({"host": host, "app": None, "status": "none", "source": "web"})
             continue
         if f.get("error"):
-            results.append({"host": host, "app": None, "status": "error", "error": f["error"]})
+            results.append({"host": host, "app": None, "status": "error", "error": f["error"], "source": "web"})
             continue
-        results.append({"host": host, **evaluate(db, APP_BY_KEY[f["app"]], f["version"])})
-    nv = npm_version() if npm.configured() or settings.npm_url else None
-    if nv:
-        results.append({"host": "Proxy Manager (Verwaltung)", **evaluate(db, NPM_APP, nv)})
-    now = datetime.utcnow()
-    for r in results:
-        for a in r.get("advisories") or []:
-            sev = "crit" if a["severity"] in ("critical", "high") else "warn"
-            notify.raise_alert(db, sev, "apps", f"{r['name']} {r['version']} hat eine bekannte Sicherheitslücke ({r['host']})",
-                               f"{a['summary']}\nSchweregrad: {a['severity']}{', ' + a['cve'] if a.get('cve') else ''}\n"
-                               f"Behoben in: {a.get('patched') or 'siehe Hinweis'}\n{a['url']}\n\nSo aktualisierst du: {r['hint']}",
-                               dedupe_key=f"app-adv:{r['host']}:{a['id']}", dedupe_hours=24 * 7)
-    summary = {"checked": now.isoformat(), "items": results}
+        if (f["app"], f["version"]) in have or (f["version"] is None and any(r["app"] == f["app"] for r in results)):
+            for r in results:  # schon über den Container bekannt: nur die Domain dazuschreiben
+                if r["app"] == f["app"] and (f["version"] is None or r.get("version") == f["version"]):
+                    r["host"] = f"{host} · {r['host']}"
+                    break
+            continue
+        results.append({"host": host, "source": "web", **evaluate(db, APP_BY_KEY[f["app"]], f["version"])})
+    if not any(r.get("app") == "npm" for r in results):
+        nv = npm_version() if npm.configured() or settings.npm_url else None
+        if nv:
+            results.append({"host": "Proxy Manager (Verwaltung)", "source": "web", **evaluate(db, NPM_APP, nv)})
+    notify_results(db, results)
+    summary = {"checked": datetime.utcnow().isoformat(), "items": results, "own": own_repos(db)}
     state.put(db, "appversions", summary)
     return summary

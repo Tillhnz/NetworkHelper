@@ -1112,3 +1112,4 @@ ul.bullet li{margin:.3rem 0}
 .storage-table td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .meter{height:.6rem;border-radius:99px;background:var(--line);overflow:hidden;max-width:36rem;margin:.3rem 0}
 .meter>span{display:block;height:100%;background:var(--celeste)}
+.own-repos li{display:flex;gap:.75rem;align-items:center;padding:.45rem 0}

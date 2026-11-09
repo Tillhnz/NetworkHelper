@@ -81,6 +81,7 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "weekly_report_day": ("int:0:6", "email", False),
     "weekly_report_hour": ("int:0:23", "email", False),
     "github_token": ("str:255", "security", True),
+    "own_repos": ("str:1000", "security", False),
     "exposure_interval_h": ("int:1:168", "security", False),
     "monitor_interval_s": ("int:20:3600", "security", False),
 }

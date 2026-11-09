@@ -203,7 +203,10 @@ def agent_state(data: StateIn, request: Request, authorization: str | None = Hea
     agent = _agent_from_token(authorization, db)
     now = datetime.utcnow()
     agent.hostname, agent.version = data.hostname, data.version
-    agent.info = json.dumps(data.info)[:20000]
+    info = dict(data.info)
+    while len(json.dumps(info)) > 20000 and info.get("docker"):
+        info["docker"] = info["docker"][:-5]  # zu viele Container: lieber kürzen als kaputtes JSON speichern
+    agent.info = json.dumps(info)[:20000] if len(json.dumps(info)) <= 20000 else json.dumps({k: v for k, v in info.items() if k != "docker"})[:20000]
     agent.connections = json.dumps({"established": data.established, "listening": data.listening})
     agent.connections_at = now
     agent.log_files = json.dumps(data.log_files)[:20000]

@@ -122,10 +122,6 @@ export const GLOSSARY = {
     title: "Zwei-Faktor-Anmeldung",
     text: "Neben dem Passwort brauchst du beim Anmelden einen zweiten Nachweis: einen 6-stelligen Code, den eine App auf deinem Handy alle 30 Sekunden neu erzeugt. Wer nur dein Passwort kennt, kommt so nicht hinein. Für den Notfall gibt es Wiederherstellungscodes, die du sicher ablegst.",
   },
-  vulns: {
-    title: "Lückenwächter",
-    text: "Die Agenten lesen aus, welche Pakete in deinen Containern und auf deinen Servern stecken: Python-, Node-, Java-, Go-, PHP-Pakete, die Systempakete und die Laufzeiten selbst. NetworkHelper gleicht das alle zwei Stunden mit OSV.dev ab (bündelt die Warnungen von GitHub, PyPI, npm, Debian, Alpine …) und mit der Liste der US-Behörde CISA, welche Lücken schon aktiv ausgenutzt werden. Eine Lücke im Paket heißt nicht immer, dass dein Dienst angreifbar ist: Oft steckt sie in einer Funktion, die die App gar nicht nutzt. Deshalb sperrt NetworkHelper nur bei kritischen oder bereits ausgenutzten Lücken automatisch, und nur Dienste, die im Internet stehen.",
-  },
   proxmox: {
     title: "Proxmox-Prüfung",
     text: "NetworkHelper liest über ein API-Token mit der Rolle PVEAuditor, wie deine Container und VMs eingerichtet sind. Am wichtigsten: Privilegierte Container (dort ist root im Container beinahe root auf dem Host), fehlende Sicherungen, offene Sicherheitsupdates und neue Konten, die du nicht selbst angelegt hast. Das Token kann nichts verändern. Das Zertifikat von Proxmox wird beim Einrichten bestätigt; zeigt der Server später ein anderes, bricht NetworkHelper ab und warnt.",

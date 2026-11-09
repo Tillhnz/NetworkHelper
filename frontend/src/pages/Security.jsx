@@ -15,7 +15,7 @@ import { InfoTip, PageIntro, Term, useHelp } from "../components/help.jsx";
 import { GuideCard } from "../components/RouterGuide.jsx";
 import { CHECKLIST, GUIDES, guidesForPort, ROUTERS } from "../routerGuides.js";
 
-const TABS = [["ports", "Offene Ports"], ["router", "Router absichern"], ["sites", "Zertifikate & Header"], ["incidents", "Vorfälle"], ["exposure", "Angriffe gelungen?"], ["apps", "Apps aktuell?"], ["proxmox", "Proxmox"], ["geo", "Länder & Listen"], ["blocks", "Sperrliste"]];
+const TABS = [["ports", "Offene Ports"], ["router", "Router absichern"], ["sites", "Zertifikate & Header"], ["incidents", "Vorfälle"], ["exposure", "Angriffe gelungen?"], ["apps", "Updates & Lücken"], ["proxmox", "Proxmox"], ["geo", "Länder & Listen"], ["blocks", "Sperrliste"]];
 
 function useWatch(load, running) {
   // Während ein Scan läuft, regelmäßig nachfragen

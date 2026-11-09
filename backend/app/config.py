@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     retention_blocked_days: int = 7  # abgewiesene Anfragen (Sperrliste) kürzer aufheben
     geoip_enabled: bool = True
     geoip_city: bool = True
+    own_repos: str = "Tillhnz/NetworkHelper,Tillhnz/Bikehelper,Tillhnz/TradingHelper,Tillhnz/BodyBase,Tillhnz/ShoppingHelper-HA"
     github_token: str = ""  # optional: mehr Abfragen bei GitHub (Versionsprüfung), Rechte: keine nötig
     app_check_enabled: bool = True
     fail2ban_share: bool = True  # was fail2ban auf einem Server sperrt, sperrt NetworkHelper überall (24 Std.)
