@@ -69,7 +69,7 @@ def test_detection_and_blocking(client, admin):
         kinds = {i.kind for i in changed}
         assert {"bruteforce", "scanner", "badagent"} <= kinds
         assert detect.is_blocked(db, "45.155.205.99") is not None
-        assert db.query(Alert).filter(Alert.kind == "incident").count() >= 2
+        assert db.query(Alert).filter(Alert.kind.like("incident_%")).count() >= 2
         # Zweiter Lauf ohne neue Zeilen erzeugt nichts Neues
         assert detect.run(db) == []
     settings.auto_block = False

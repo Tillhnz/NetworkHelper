@@ -13,10 +13,14 @@ export default function PushSetup() {
   const [cfg, setCfg] = useState(null);
   const [topic, setTopic] = useState("");
   const [busy, setBusy] = useState(false);
+  const [cats, setCats] = useState([]);
+  const [off, setOff] = useState(new Set());
   useEffect(() => {
     api.get("/admin/settings").then((d) => {
       const f = d.fields || {};
       setCfg(f);
+      setCats(d.notify_categories || []);
+      setOff(new Set((f.notify_off?.value || "").split(",").map((x) => x.trim()).filter(Boolean)));
       setTopic(f.ntfy_topic?.value || "");
     }).catch(() => setCfg({}));
   }, []);
@@ -35,6 +39,15 @@ export default function PushSetup() {
       } else toast("Push ausgeschaltet.");
     } catch (e) { toast(e.message, "error"); } finally { setBusy(false); }
   }
+  async function toggle(key) {
+    const next = new Set(off);
+    next.has(key) ? next.delete(key) : next.add(key);
+    setOff(next);
+    try {
+      await api.put("/admin/settings", { values: { notify_off: [...next].join(",") } });
+    } catch (e) { setOff(off); toast(e.message, "error"); }
+  }
+  const groups = [...new Set(cats.map((c) => c.group))];
   return (
     <div className="push-setup">
       <ol className="small steps-list">
@@ -50,6 +63,22 @@ export default function PushSetup() {
         <button type="button" className="btn primary" onClick={save} disabled={busy || topic.trim() === saved}>{busy ? "…" : "Speichern & testen"}</button>
         {saved && topic.trim() === saved && <button type="button" className="btn" onClick={() => api.post("/admin/settings/test-push", {}).then(() => toast("Test-Push gesendet.")).catch((e) => toast(e.message, "error"))}>Test-Push</button>}
       </div>
+      {cats.length > 0 && cfg.notify_off && (
+        <details className="notify-cats">
+          <summary>Wofür benachrichtigen? {off.size > 0 && <span className="muted small">({off.size} stumm)</span>}</summary>
+          <p className="muted small">Abgewählte Arten kommen weder per Push noch per Mail. Im Dashboard stehen sie trotzdem.</p>
+          {groups.map((g) => (
+            <fieldset key={g} className="notify-group">
+              <legend>{g}</legend>
+              {cats.filter((c) => c.group === g).map((c) => (
+                <label key={c.key} className="check">
+                  <input type="checkbox" checked={!off.has(c.key)} onChange={() => toggle(c.key)} /> {c.label}
+                </label>
+              ))}
+            </fieldset>
+          ))}
+        </details>
+      )}
       <p className="muted small">{saved ? <>Aktiv: Warnungen ab Stufe „{{ info: "Hinweis", warn: "Warnung", crit: "kritisch" }[cfg.ntfy_min_level?.value] || "Warnung"}“ kommen aufs Handy. Feinheiten (eigener Server, Token) unter Administration → E-Mail & Push.</> : "Noch nicht eingerichtet."}</p>
     </div>
   );

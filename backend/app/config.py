@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     ntfy_topic: str = ""  # Thema, das die ntfy-App abonniert; leer = keine Push-Nachrichten
     ntfy_token: str = ""  # Zugangstoken (tk_…), nur bei geschütztem Thema/eigenem Server
     ntfy_min_level: str = "warn"
+    notify_off: str = ""  # stummgeschaltete Meldungsarten, kommagetrennt (siehe notify.CATEGORIES)
     update_notify: bool = True  # neue Versionen von NetworkHelper per Push melden  # ab welcher Stufe gepusht wird: info, warn, crit
     proxmox_url: str = ""  # z. B. https://192.168.178.2:8006
     proxmox_token_id: str = ""  # networkhelper@pve!monitor

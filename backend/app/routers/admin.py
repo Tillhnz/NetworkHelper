@@ -141,7 +141,8 @@ class SettingsIn(BaseModel):
 def _settings_payload(db: Session) -> dict:
     return {"fields": server_settings.describe(db), "smtp_ready": notify.smtp_configured(),
             "porkbun_ready": porkbun.configured(), "npm_ready": npm.configured(),
-            "adguard_ready": adguard.configured(), "proxmox_ready": proxmox.configured()}
+            "adguard_ready": adguard.configured(), "proxmox_ready": proxmox.configured(),
+            "notify_categories": [{"key": k, "label": label, "group": g} for k, label, g in notify.CATEGORIES]}
 
 
 @router.get("/settings")

@@ -27,6 +27,36 @@ RANK = {"info": 0, "warn": 1, "crit": 2}
 SEVERITY_TEXT = {"info": "Hinweis", "warn": "Warnung", "crit": "Kritisch"}
 BATCH_WAIT = timedelta(minutes=3)
 
+# Arten von Meldungen, die man einzeln stummschalten kann (Schlüssel = Alert.kind). Stumm heißt: weder Push noch
+# Mail, die Meldung steht aber weiter im Dashboard.
+CATEGORIES = [
+    ("incident_scanner", "Suche nach Schwachstellen", "Zugriffe"),
+    ("incident_notfound", "Verzeichnis-Scan (viele 404)", "Zugriffe"),
+    ("incident_badagent", "Angriffswerkzeug erkannt", "Zugriffe"),
+    ("incident_bruteforce", "Viele fehlgeschlagene Anmeldungen", "Zugriffe"),
+    ("incident_flood", "Sehr viele Anfragen", "Zugriffe"),
+    ("block", "Automatische Sperren", "Zugriffe"),
+    ("host", "Wachsamkeit auf Servern (Anmeldungen, Benutzer, Dateien)", "Server"),
+    ("ports", "Offene Ports", "Server"),
+    ("exposure", "Öffentlich lesbare Daten", "Server"),
+    ("agent", "Agent meldet sich nicht", "Server"),
+    ("proxmox", "Proxmox", "Server"),
+    ("uptime", "Dienst ausgefallen / wieder da", "Dienste"),
+    ("site", "Webseiten-Prüfung", "Dienste"),
+    ("cert", "Zertifikate", "Dienste"),
+    ("apps", "Updates mit Sicherheitskorrektur", "Dienste"),
+    ("update", "Neue NetworkHelper-Version", "Dienste"),
+    ("dns", "DNS-Einträge", "Netz"),
+    ("ip", "Neue öffentliche IP", "Netz"),
+    ("adguard", "AdGuard", "Netz"),
+    ("account", "Konten und Anmeldung", "Netz"),
+]
+
+
+def muted(kind: str) -> bool:
+    off = {k.strip() for k in (settings.notify_off or "").split(",") if k.strip()}
+    return kind in off
+
 
 def smtp_configured() -> bool:
     return bool(settings.smtp_host and (settings.smtp_from or settings.smtp_user))
@@ -44,7 +74,7 @@ def raise_alert(db: Session, severity: str, kind: str, title: str, body: str = "
     db.add(alert)
     if commit:
         db.commit()
-    if push_configured() and RANK.get(severity, 0) >= RANK.get(settings.ntfy_min_level, 1):
+    if push_configured() and not muted(kind) and RANK.get(severity, 0) >= RANK.get(settings.ntfy_min_level, 1):
         threading.Thread(target=_push_quiet, args=(severity, kind, title, body), daemon=True).start()
     return alert
 
@@ -54,7 +84,7 @@ def raise_alert(db: Session, severity: str, kind: str, title: str, body: str = "
 PRIORITY = {"info": 3, "warn": 4, "crit": 5}
 TAGS = {"info": ["information_source"], "warn": ["warning"], "crit": ["rotating_light"]}
 LINKS = {"apps": "/security?tab=apps", "proxmox": "/security?tab=proxmox", "adguard": "/dns?tab=adguard",
-         "cert": "/security?tab=sites", "uptime": "/uptime", "update": "/admin"}
+         "cert": "/security?tab=sites", "incident": "/security?tab=incidents", "uptime": "/uptime", "update": "/admin"}
 
 
 def push_configured() -> bool:
@@ -63,7 +93,7 @@ def push_configured() -> bool:
 
 def push(title: str, body: str = "", severity: str = "warn", kind: str = "", actions: list[dict] | None = None) -> None:
     """Schickt eine Push-Nachricht an die ntfy-App. Wirft httpx.HTTPError bei Fehlern."""
-    link = settings.public_url.rstrip("/") + LINKS.get(kind, "/")
+    link = settings.public_url.rstrip("/") + LINKS.get(kind, LINKS.get(kind.split("_")[0], "/"))
     payload = {"topic": settings.ntfy_topic, "title": title[:250], "message": (body or title)[:3500],
                "priority": PRIORITY.get(severity, 3), "tags": TAGS.get(severity, []), "click": link,
                "actions": actions or [{"action": "view", "label": "Öffnen", "url": link}]}
@@ -138,7 +168,7 @@ def send_pending(db: Session | None = None, now: datetime | None = None) -> int:
         threshold = RANK.get(settings.alert_min_severity, 1)
         due, skip = [], []
         for a in pending:
-            (due if RANK.get(a.severity, 0) >= threshold else skip).append(a)
+            (due if RANK.get(a.severity, 0) >= threshold and not muted(a.kind) else skip).append(a)
         for a in skip:  # unter der Schwelle: nur im Dashboard
             a.sent_at, a.send_error = now, "nur im Dashboard"
         if not due:

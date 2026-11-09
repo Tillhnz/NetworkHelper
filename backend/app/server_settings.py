@@ -47,6 +47,7 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "ntfy_topic": ("str:120", "email", False),
     "ntfy_token": ("str:200", "email", True),
     "ntfy_min_level": ("choice:info|warn|crit", "email", False),
+    "notify_off": ("str:1000", "email", False),
     "update_notify": ("bool", "email", False),
     "proxmox_url": ("urlopt", "proxmox", False),
     "proxmox_token_id": ("str:120", "proxmox", False),

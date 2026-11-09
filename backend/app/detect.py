@@ -214,7 +214,7 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
             body = f"IP: {inc.ip}{where}{', ' + inc.as_org if inc.as_org else ''}\nZiele: {inc.hosts or '-'}\nTreffer bisher: {inc.count}"
             if inc.ip in blocked_now:
                 body += f"\nDie Adresse ist für {settings.auto_block_hours} Stunden gesperrt."
-            notify.raise_alert(db, inc.severity, "incident", f"{KIND_TEXT[inc.kind]} von {inc.ip}", body,
+            notify.raise_alert(db, inc.severity, f"incident_{inc.kind}", f"{KIND_TEXT[inc.kind]} von {inc.ip}", body,
                                dedupe_key=f"incident:{inc.ip}:{inc.kind}:{inc.severity}", dedupe_hours=24)
     for ip in blocked_now:
         if not any(i.ip == ip for i in changed):

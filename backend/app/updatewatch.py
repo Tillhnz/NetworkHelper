@@ -46,7 +46,7 @@ def run(db: Session) -> None:
             "Einspielen: Administration → Übersicht → Update.")
     notify.raise_alert(db, "warn" if sec else "info", "update", title, body, dedupe_key=f"update:{key}"[:200],
                        dedupe_hours=24 * 30, commit=False)
-    if notify.push_configured() and notify.RANK.get("warn" if sec else "info", 0) < notify.RANK.get(settings.ntfy_min_level, 1):
+    if notify.push_configured() and not notify.muted("update") and notify.RANK.get("warn" if sec else "info", 0) < notify.RANK.get(settings.ntfy_min_level, 1):
         try:  # neue Versionen immer pushen, auch wenn sonst nur Warnungen gepusht werden
             notify.push(title, body, "warn" if sec else "info", "update")
         except Exception as e:  # noqa: BLE001
