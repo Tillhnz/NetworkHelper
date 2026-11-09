@@ -30,7 +30,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 CONFIG = os.environ.get("NH_AGENT_CONFIG", "/etc/networkhelper-agent.json")
 STATE_DIR = os.environ.get("NH_AGENT_STATE", "/var/lib/networkhelper-agent")
 DEFAULTS = {
@@ -706,9 +706,42 @@ class Blocker:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(old)
 
+    def clear_stale(self):
+        """Sperren ausgeschaltet: alte deny-Zeilen und Länder-Sperren einmalig leeren, sonst blieben sie für immer aktiv."""
+        if self.applied == "cleared":
+            return
+        self.applied = "cleared"
+        target = os.path.join(self.custom, BLOCK_FILE)
+        http_target = os.path.join(self.custom, HTTP_FILE)
+        old, old_http = read_first(target, None), read_first(http_target, None)
+        stale = (old and re.search(r"^\s*(deny|if|set|return)\b", old, re.M)) or \
+                (old_http and re.search(r"^\s*(geo|map)\b", old_http, re.M))
+        if not stale:
+            return
+        try:
+            with open(target, "w", encoding="utf-8") as f:
+                f.write("# NetworkHelper: Sperrliste ist ausgeschaltet\n")
+            if old_http is not None:
+                with open(http_target, "w", encoding="utf-8") as f:
+                    f.write("# NetworkHelper: keine Länder- oder Listen-Sperren aktiv\n")
+            code, out = self._run(self._nginx("-t"))
+            if code != 0:
+                self._restore(target, old)
+                self._restore(http_target, old_http)
+                self.status = "Alte Sperren konnten nicht entfernt werden: " + out[-200:]
+                log(self.status)
+                return
+            self._run(self.cfg.get("reload_cmd") or self._nginx("-s", "reload"))
+            self.status = "Sperrliste ausgeschaltet, alte Sperren entfernt"
+            log(self.status)
+        except OSError as e:
+            self.status = "Fehler beim Entfernen alter Sperren: %s" % e
+            log(self.status)
+
     def apply(self, entries, digest, http_conf=None, server_snippet=""):
         """entries: deny-Adressen; http_conf: Text für den http-Block (geo/map) oder None; server_snippet: Prüfung je Host."""
         if not self.cfg.get("enforce_blocks"):
+            self.clear_stale()
             return
         if digest == self.applied:
             return
