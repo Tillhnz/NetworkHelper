@@ -10,7 +10,7 @@ from typing import Callable
 
 from sqlalchemy import delete, select
 
-from . import adguard, appversions, certs, proxmox, vulns, detect, dns, domainguard, exposure, geoblock, report, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
+from . import adguard, appversions, certs, proxmox, updatewatch, vulns, detect, dns, domainguard, exposure, geoblock, report, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
 from .config import settings
 from .database import SessionLocal
 from .models import AccessEvent, Agent, Alert, DynRecord, Incident, MonitorResult
@@ -91,6 +91,7 @@ FAST = [
     Job("alerts", notify.send_pending, lambda: 60, delay=45),
     Job("agents", _agents, lambda: 120, delay=300),
     Job("adguard", adguard.run, lambda: 600, adguard.configured, delay=75),
+    Job("updatewatch", updatewatch.run, lambda: 6 * 3600, lambda: settings.update_notify and bool(settings.updater_url), delay=420),
     Job("weekly_report", report.run, lambda: 900, lambda: settings.weekly_report, delay=600),
 ]
 SLOW = [

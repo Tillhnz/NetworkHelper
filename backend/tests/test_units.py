@@ -612,3 +612,23 @@ def test_vuln_remedy_and_auto_fix(monkeypatch):
     assert db.query(Alert).filter(Alert.title.like("Kein Update verfügbar%")).count() == 1
     vulns.run(db)  # innerhalb von 24 h kein zweiter automatischer Versuch
     assert db.query(VulnAction).count() == 1
+
+
+def test_update_watch_pushes_once(monkeypatch):
+    from app import notify, updatewatch
+    from app.config import settings
+    from app.models import Alert
+    from app.routers import admin
+    monkeypatch.setattr(settings, "update_notify", True)
+    monkeypatch.setattr(settings, "ntfy_topic", "t")
+    sent = []
+    monkeypatch.setattr(notify, "push", lambda *a, **k: sent.append(a))
+    monkeypatch.setattr(notify, "_push_quiet", lambda *a: sent.append(a))
+    monkeypatch.setattr(admin, "_updater", lambda m, p, timeout=90: {"behind": 2, "changes": [
+        "2026-11-09  Bump pyjwt from 2.15.0 to 2.15.1 in /backend (#18)", "2026-11-08  Speicherplatz sparen"]})
+    db = _db_with_ip()
+    updatewatch.run(db)
+    updatewatch.run(db)
+    alerts = db.query(Alert).filter(Alert.kind == "update").all()
+    assert len(alerts) == 1 and alerts[0].title.startswith("Sicherheitsupdate") and "pyjwt" in alerts[0].body
+    assert len(sent) == 1  # nur einmal pro neuer Version

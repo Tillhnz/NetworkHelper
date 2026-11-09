@@ -47,6 +47,7 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "ntfy_topic": ("str:120", "email", False),
     "ntfy_token": ("str:200", "email", True),
     "ntfy_min_level": ("choice:info|warn|crit", "email", False),
+    "update_notify": ("bool", "email", False),
     "vuln_watch": ("bool", "security", False),
     "vuln_auto_quarantine": ("bool", "security", False),
     "vuln_cvss_threshold": ("int:7:10", "security", False),

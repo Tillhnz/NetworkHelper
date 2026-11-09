@@ -70,7 +70,8 @@ class Settings(BaseSettings):
     ntfy_url: str = "https://ntfy.sh"  # oder eigener ntfy-Server
     ntfy_topic: str = ""  # Thema, das die ntfy-App abonniert; leer = keine Push-Nachrichten
     ntfy_token: str = ""  # Zugangstoken (tk_…), nur bei geschütztem Thema/eigenem Server
-    ntfy_min_level: str = "warn"  # ab welcher Stufe gepusht wird: info, warn, crit
+    ntfy_min_level: str = "warn"
+    update_notify: bool = True  # neue Versionen von NetworkHelper per Push melden  # ab welcher Stufe gepusht wird: info, warn, crit
     vuln_watch: bool = True  # Pakete der Dienste mit Lückendatenbanken abgleichen
     vuln_auto_quarantine: bool = True  # bei kritischen/ausgenutzten Lücken den Dienst nur noch im Heimnetz erreichbar machen
     vuln_cvss_threshold: int = 9

@@ -440,6 +440,7 @@ const PUSH = [
   { key: "ntfy_topic", type: "text", label: "Thema (Topic)", placeholder: "z. B. nh-till-7k3q9x", hint: "Ein langer, schwer zu erratender Name. Genau diesen Namen abonnierst du in der ntfy-App. Wer ihn kennt, kann deine Meldungen lesen, deshalb kein einfaches Wort." },
   { key: "ntfy_url", type: "text", label: "ntfy-Server", placeholder: "https://ntfy.sh", hint: "ntfy.sh ist kostenlos. Hast du einen eigenen ntfy-Server, trag ihn hier ein." },
   { key: "ntfy_token", type: "text", secret: true, label: "Zugangstoken (optional)", hint: "Nur für geschützte Themen oder einen eigenen Server mit Anmeldung (tk_…)." },
+  { key: "update_notify", type: "bool", label: "Neue Versionen von NetworkHelper melden", hint: "Prüft alle 6 Stunden auf GitHub. Sicherheitsupdates (z. B. von Dependabot) kommen mit höherer Priorität. Immer gepusht, unabhängig von „Pushen ab“." },
   { key: "ntfy_min_level", type: "select", label: "Pushen ab", options: [["info", "Hinweis (alles)"], ["warn", "Warnung"], ["crit", "Nur kritisch"]] },
 ];
 const VULN = [
