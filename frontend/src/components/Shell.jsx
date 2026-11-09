@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import UpdateToast from "./UpdateToast.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
 
 const NAV = [
@@ -50,6 +51,7 @@ export default function Shell({ user, onLogout, children }) {
       </aside>
       <main className="main" id="inhalt" tabIndex={-1}>
         <div className="page" key={pathname}>{children}</div>
+        {user.role === "admin" && <UpdateToast />}
       </main>
     </div>
   );

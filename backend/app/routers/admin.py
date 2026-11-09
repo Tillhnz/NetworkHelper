@@ -1,4 +1,6 @@
 """Administration: Konten, Einladungen, Servereinstellungen, Updates, Sicherungen, Protokoll, Zustand."""
+import threading
+import re
 import hashlib
 import json
 import os
@@ -301,6 +303,39 @@ def start_update(admin: User = Depends(require_admin), db: Session = Depends(get
     r = _updater("POST", "/update")
     audit.record(db, admin.email, "update.start")
     return r
+
+# ---------- Update-Assistent (Hinweis unten in der Ecke) ----------
+
+_hint_lock = threading.Lock()
+_hint = {"data": None, "checked": 0.0, "running": False}
+_HINT_SEC = re.compile(r"\b(bump|sicherheit|security|cve-|lücke|vulnerab|dependabot)\b", re.I)
+
+
+def _refresh_hint() -> None:
+    data = None
+    try:
+        st = _updater("GET", "/status?check=1", timeout=120)
+        changes = [c.split("  ", 1)[-1] for c in (st.get("changes") or [])][:8]
+        if st.get("behind"):
+            data = {"count": st["behind"], "changes": changes, "id": (st.get("changes") or [str(st["behind"])])[0],
+                    "security": any(_HINT_SEC.search(c) for c in changes)}
+    except Exception:  # noqa: BLE001 - kein Update-Dienst: kein Hinweis
+        data = None
+    with _hint_lock:
+        _hint.update(data=data, checked=time.time(), running=False)
+
+
+@router.get("/update/hint")
+def update_hint(admin: User = Depends(require_admin)):
+    """Gibt es eine neuere Version? Geprüft wird höchstens stündlich im Hintergrund."""
+    with _hint_lock:
+        stale = time.time() - _hint["checked"] > 3600 and not _hint["running"]
+        if stale:
+            _hint["running"] = True
+        data = _hint["data"]
+    if stale:
+        threading.Thread(target=_refresh_hint, daemon=True, name="update-hint").start()
+    return data or {"count": 0}
 
 
 @router.get("/backups")
