@@ -1,4 +1,5 @@
-FROM node:22-alpine AS build
+# Das Frontend ist plattformunabhängig: immer nativ bauen (unter ARM-Emulation stürzt Node ab)
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
