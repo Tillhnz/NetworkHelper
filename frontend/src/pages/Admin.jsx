@@ -443,13 +443,6 @@ const PUSH = [
   { key: "update_notify", type: "bool", label: "Neue Versionen von NetworkHelper melden", hint: "Prüft alle 6 Stunden auf GitHub. Sicherheitsupdates (z. B. von Dependabot) kommen mit höherer Priorität. Immer gepusht, unabhängig von „Pushen ab“." },
   { key: "ntfy_min_level", type: "select", label: "Pushen ab", options: [["info", "Hinweis (alles)"], ["warn", "Warnung"], ["crit", "Nur kritisch"]] },
 ];
-const VULN = [
-  { key: "vuln_watch", type: "bool", label: "Pakete der Dienste auf neue Sicherheitslücken prüfen", hint: "Die Agenten melden, was in deinen Containern installiert ist. NetworkHelper gleicht das alle zwei Stunden mit OSV.dev und der Liste aktiv ausgenutzter Lücken ab. Gesendet werden nur Paketnamen und Versionen." },
-  { key: "vuln_auto_quarantine", type: "bool", label: "Betroffene Dienste automatisch sperren", hint: "Bei einer kritischen oder bereits ausgenutzten Lücke ist der Dienst danach nur noch aus dem Heimnetz erreichbar, bis das Paket aktualisiert ist. Das Konto im Proxy Manager braucht dafür bei „Proxy Hosts“ und „Zugriffslisten“ das Recht „Verwalten“." },
-  { key: "vuln_cvss_threshold", type: "number", label: "Automatisch sperren ab Schweregrad (CVSS)", min: 7, max: 10, hint: "9 = nur kritische Lücken. Lücken, die schon ausgenutzt werden, sperren immer." },
-  { key: "vuln_auto_fix", type: "select", label: "Lücken automatisch per Update schließen", options: [["critical", "Bei kritischen und ausgenutzten Lücken"], ["serious", "Bei allen schweren Lücken (ab CVSS 7)"], ["off", "Nie, nur auf Knopfdruck"]], hint: "Nur auf Servern, deren Agent mit --allow-updates installiert ist. Container werden über Docker Compose neu gezogen und bei Problemen zurückgesetzt; Systempakete nur aktualisiert, nie neu installiert. Höchstens ein Versuch pro Tag und Dienst." },
-  { key: "vuln_quarantine_exclude", type: "text", label: "Nie automatisch sperren", wide: true, placeholder: "home.example.de", hint: "Domains, die immer erreichbar bleiben müssen. Du bekommst trotzdem die Meldung. NetworkHelper selbst ist immer ausgenommen." },
-];
 const SECURITY = [
   { key: "scan_enabled", type: "bool", label: "Öffentliche IP regelmäßig auf offene Ports prüfen" },
   { key: "scan_interval_h", type: "number", label: "Portscan alle (Stunden)", min: 1, max: 168 },
@@ -512,7 +505,6 @@ export default function Admin({ user }) {
             spec: PUSH,
             extra: <TestButton label="Test-Push senden" path="/admin/settings/test-push" describe={() => "Gesendet. Kommt nichts an: Thema in der App genau gleich geschrieben?"} />,
           })}
-          {tab === "security" && block({ title: "Lückenwächter", spec: VULN })}
           {tab === "email" && block({ title: "Wochenbericht", spec: REPORT, extra: <ReportPreview /> })}
           {tab === "dns" && block({
             title: "Porkbun",

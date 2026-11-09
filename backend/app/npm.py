@@ -140,18 +140,13 @@ def renew_certificate(cert_id: int) -> dict:
 QUARANTINE_LIST = "NetworkHelper: nur Heimnetz"
 
 
-def quarantine_list(allow: list[str]) -> int:
-    """Legt die Zugriffsliste „nur Heimnetz“ an bzw. aktualisiert sie und gibt ihre ID zurück."""
-    body = {"name": QUARANTINE_LIST, "satisfy_any": False, "pass_auth": False, "items": [],
-            "clients": [{"address": a, "directive": "allow"} for a in allow] + [{"address": "all", "directive": "deny"}]}
-    existing = next((a for a in _api("GET", "/api/nginx/access-lists", {"expand": "clients"}) or []
-                     if a.get("name") == QUARANTINE_LIST), None)
-    if existing:
-        have = sorted(c.get("address") for c in existing.get("clients") or [] if c.get("directive") == "allow")
-        if have != sorted(allow):
-            _api("PUT", f"/api/nginx/access-lists/{existing['id']}", json=body)
-        return int(existing["id"])
-    return int((_api("POST", "/api/nginx/access-lists", json=body) or {})["id"])
+def find_access_list(name: str) -> int | None:
+    found = next((a for a in _api("GET", "/api/nginx/access-lists") or [] if a.get("name") == name), None)
+    return int(found["id"]) if found else None
+
+
+def delete_access_list(list_id: int) -> None:
+    _api("DELETE", f"/api/nginx/access-lists/{int(list_id)}")
 
 
 def set_access_list(host_id: int, access_list_id: int) -> None:

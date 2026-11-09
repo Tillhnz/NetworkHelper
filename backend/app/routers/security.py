@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .. import appversions, audit, certs, detect, exposure, fail2ban, geoblock, npm, portscan, proxmox, scheduler, state, vulns
+from .. import appversions, audit, certs, detect, exposure, fail2ban, geoblock, npm, portscan, proxmox, scheduler, state
 from ..database import get_db
-from ..models import Agent, ExpectedPort, Exposure, GeoRule, Incident, InventoryTarget, PortFinding, Quarantine, SiteCheck, User, VulnAction, VulnFinding
+from ..models import Agent, ExpectedPort, Exposure, GeoRule, Incident, PortFinding, SiteCheck, User
 from ..security import current_user, require_admin
 from ..server_settings import HOST_RE
 
@@ -433,94 +433,3 @@ def proxmox_check(admin: User = Depends(require_admin)):
         raise HTTPException(409, "Proxmox ist nicht eingerichtet")
     scheduler.trigger("proxmox")
     return {"started": True}
-
-
-# ---------- Lückenwächter ----------
-
-@router.get("/vulns")
-def vulns_overview(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return {**vulns.overview(db), "running": scheduler.JOBS["vulns"].running}
-
-
-@router.get("/vulns/targets/{target_id}/findings")
-def vulns_target_findings(target_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return vulns.target_findings(db, target_id)
-
-
-@router.post("/vulns/check", status_code=202)
-def vulns_check(admin: User = Depends(require_admin)):
-    scheduler.trigger("vulns")
-    return {"started": True}
-
-
-class AcceptIn(BaseModel):
-    accepted: bool
-
-
-@router.put("/vulns/findings/{finding_id}")
-def vulns_accept(finding_id: int, data: AcceptIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    f = db.get(VulnFinding, finding_id)
-    if f is None:
-        raise HTTPException(404, "Nicht gefunden")
-    f.accepted = data.accepted
-    db.commit()
-    audit.record(db, admin.email, "vuln.accept" if data.accepted else "vuln.unaccept", f"{f.package} {f.vuln_id}")
-    return {"ok": True}
-
-
-class QuarantineIn(BaseModel):
-    host_id: int
-
-
-@router.post("/vulns/quarantine", status_code=201)
-def vulns_quarantine(data: QuarantineIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    try:
-        host = next((h for h in npm.raw_proxy_hosts() if h["id"] == data.host_id), None)
-    except npm.NpmError as e:
-        raise HTTPException(502, str(e))
-    if host is None:
-        raise HTTPException(404, "Proxy Host nicht gefunden")
-    if any(q.proxy_host_id == host["id"] for q in vulns.active_quarantines(db)):
-        raise HTTPException(409, "Ist schon gesperrt")
-    q = vulns.quarantine(db, host, [], f"Von Hand gesperrt durch {admin.email}", auto=False)
-    db.commit()
-    if q.error:
-        raise HTTPException(502, q.error)
-    audit.record(db, admin.email, "vuln.quarantine", q.domains)
-    return {"id": q.id}
-
-
-@router.post("/vulns/quarantine/{qid}/release")
-def vulns_release(qid: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    q = db.get(Quarantine, qid)
-    if q is None or q.released_at:
-        raise HTTPException(404, "Keine aktive Sperre")
-    try:
-        vulns.release(db, q, admin.email)
-    except npm.NpmError as e:
-        db.commit()
-        raise HTTPException(502, str(e))
-    db.commit()
-    audit.record(db, admin.email, "vuln.release", q.domains)
-    return {"ok": True}
-
-
-@router.post("/vulns/targets/{target_id}/fix", status_code=202)
-def vulns_fix(target_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    t = db.get(InventoryTarget, target_id)
-    if t is None:
-        raise HTTPException(404, "Nicht gefunden")
-    agent = db.get(Agent, t.agent_id)
-    fs = list(db.scalars(select(VulnFinding).where(VulnFinding.target_id == t.id, VulnFinding.resolved_at.is_(None))))
-    plan = vulns.remedy(t, fs, agent)
-    if not plan["agent_allows"]:
-        raise HTTPException(409, "Der Agent darf keine Updates ausführen. Auf dem Server den Installationsbefehl mit --allow-updates erneut ausführen.")
-    if not plan["action"]:
-        raise HTTPException(409, "Für dieses Ziel gibt es kein automatisches Update. Bitte die Schritte von Hand ausführen.")
-    busy = db.scalar(select(VulnAction.id).where(VulnAction.target_id == t.id, VulnAction.status.in_(("queued", "sent", "running"))).limit(1))
-    if busy:
-        raise HTTPException(409, "Für dieses Ziel läuft schon ein Update.")
-    a = vulns.queue_action(db, t, plan["action"], auto=False, by=admin.email)
-    db.commit()
-    audit.record(db, admin.email, "vuln.fix", a.label)
-    return {"id": a.id}

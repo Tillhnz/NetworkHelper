@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import accesslog, audit, detect, fail2ban, geoip, hostwatch, ratelimit, scheduler, vulns
+from .. import accesslog, audit, detect, fail2ban, geoip, hostwatch, ratelimit
 from ..config import settings
 from ..database import get_db
 from ..models import Agent, User, WatchEvent
@@ -195,7 +195,6 @@ class StateIn(BaseModel):
     enforce_blocks: bool = False
     block_status: str | None = Field(default=None, max_length=300)
     fail2ban: dict = Field(default_factory=dict)
-    allow_updates: bool = False
 
 
 @router.post("/agent/state")
@@ -209,7 +208,6 @@ def agent_state(data: StateIn, request: Request, authorization: str | None = Hea
     agent.connections_at = now
     agent.log_files = json.dumps(data.log_files)[:20000]
     agent.enforce_blocks, agent.block_status = data.enforce_blocks, data.block_status
-    agent.allow_updates = data.allow_updates
     agent.last_seen, agent.last_ip = now, ratelimit.client_ip(request)
     db.commit()
     hostwatch.check_ports(db, agent, data.listening)
@@ -221,7 +219,7 @@ def agent_state(data: StateIn, request: Request, authorization: str | None = Hea
     digest = hashlib.sha256(("\n".join(blocks) + "|" + (http_hash or "")).encode()).hexdigest()[:16]
     return {"blocklist": blocks, "blocklist_hash": digest, "http_conf_hash": http_hash, "server_snippet": snippet if http_hash else "",
             "interval": 30, "agent_version": agent_version(), "own_ips": fail2ban.own_ips(db),
-            "f2b_unban": fail2ban.take_unban(db, agent.id), "actions": vulns.pending_actions(db, agent)}
+            "f2b_unban": fail2ban.take_unban(db, agent.id)}
 
 
 @router.get("/agent/own-ips")
@@ -267,22 +265,11 @@ def agent_watch(data: WatchIn, authorization: str | None = Header(None), db: Ses
 
 
 @router.post("/agent/inventory")
-def agent_inventory(data: dict, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """Inventur: was in den laufenden Container-Images und auf dem Server installiert ist."""
-    agent = _agent_from_token(authorization, db)
-    if not isinstance(data.get("targets"), list) or len(data["targets"]) > 200:
-        raise HTTPException(422, "targets fehlt oder zu viele")
-    res = vulns.ingest(db, agent, data)
-    if settings.vuln_watch:
-        scheduler.trigger("vulns")
-    return res
-
-
 @router.post("/agent/action-result")
-def agent_action_result(data: dict, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    agent = _agent_from_token(authorization, db)
-    vulns.action_result(db, agent, data)
-    return {"ok": True}
+def agent_retired(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Frühere Lückenwächter-Funktionen: ältere Agenten melden hier noch, bis sie sich aktualisiert haben."""
+    _agent_from_token(authorization, db)
+    return {"ok": True, "retired": True}
 
 
 # ---------- Wachsamkeit in der Oberfläche ----------

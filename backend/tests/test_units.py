@@ -462,104 +462,6 @@ def test_proxmox_checks_and_alerts(monkeypatch):
     assert "Neues Proxmox-Konto: hacker@pve" in titles and any("docker" in t and "läuft nicht" in t for t in titles)
 
 
-def _vuln_env(monkeypatch, osv_results):
-    import json as _json
-    from app import npm, vulns
-    from app.config import settings
-    from app.models import Agent
-    monkeypatch.setattr(settings, "vuln_watch", True)
-    monkeypatch.setattr(settings, "vuln_auto_quarantine", True)
-    monkeypatch.setattr(settings, "vuln_cvss_threshold", 9)
-    monkeypatch.setattr(settings, "public_url", "https://network.example.de")
-    monkeypatch.setattr(settings, "npm_url", "http://192.168.1.5:81")
-    monkeypatch.setattr(vulns, "kev_ids", lambda db: {"CVE-2021-44228"})
-    monkeypatch.setattr(vulns, "runtime_data", lambda db: {
-        "nodejs": [{"cycle": "20", "latest": "20.18.1", "eol": "2026-04-30"}, {"cycle": "22", "latest": "22.12.0", "eol": "2027-04-30"}],
-        "node_security": ["22.12.0", "20.18.1"]})
-    monkeypatch.setattr(vulns, "osv_batch", lambda qs: [osv_results.get(q, []) for q in qs])
-    details = {
-        "GHSA-log4j": {"id": "GHSA-log4j", "aliases": ["CVE-2021-44228"], "summary": "Log4Shell",
-                       "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"}],
-                       "affected": [{"package": {"ecosystem": "Maven", "name": "org.apache.logging.log4j:log4j-core"},
-                                     "ranges": [{"events": [{"introduced": "2.0"}, {"fixed": "2.15.0"}]}]}]},
-        "GHSA-django": {"id": "GHSA-django", "aliases": ["CVE-2024-1"], "summary": "SQL injection",
-                        "database_specific": {"severity": "HIGH"},
-                        "affected": [{"package": {"ecosystem": "PyPI", "name": "django"}, "ranges": [{"events": [{"fixed": "4.2.11"}]}]}]},
-        "PYSEC-django": {"id": "PYSEC-django", "aliases": ["CVE-2024-1"], "summary": "dupe"},
-        "DEBIAN-CVE-x": {"id": "DEBIAN-CVE-x", "aliases": [], "summary": "minor"},
-    }
-    monkeypatch.setattr(vulns, "osv_vuln", lambda vid, client=None: details[vid])
-    hosts = [{"id": 1, "domains": ["app.example.de"], "host": "192.168.1.20", "port": 8080, "enabled": True, "access_list_id": 0},
-             {"id": 2, "domains": ["network.example.de"], "host": "192.168.1.20", "port": 8080, "enabled": True, "access_list_id": 0},
-             {"id": 3, "domains": ["intern.example.de"], "host": "192.168.1.20", "port": 9000, "enabled": True, "access_list_id": 7}]
-    calls = []
-    monkeypatch.setattr(npm, "configured", lambda: True)
-    monkeypatch.setattr(npm, "raw_proxy_hosts", lambda: hosts)
-    monkeypatch.setattr(npm, "quarantine_list", lambda allow: calls.append(("list", tuple(allow))) or 42)
-    monkeypatch.setattr(npm, "set_access_list", lambda hid, lid: calls.append(("set", hid, lid)))
-    db = _db_with_ip()
-    a = Agent(name="docker", token_hash="h", info=_json.dumps({"addrs": ["192.168.1.20"]}))
-    db.add(a)
-    db.commit()
-    return db, a, calls, hosts
-
-
-def test_vuln_ecosystems():
-    from app import vulns
-    assert vulns.ecosystem("deb", "debian:12") == "Debian:12"
-    assert vulns.ecosystem("deb", "ubuntu:24.04") == "Ubuntu:24.04:LTS"
-    assert vulns.ecosystem("deb", "ubuntu:23.10") == "Ubuntu:23.10"
-    assert vulns.ecosystem("apk", "alpine:3.20.3") == "Alpine:v3.20"
-    assert vulns.query_for(["java-archive", "log4j-core", "2.14.1", "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"], None) == \
-        ("Maven", "org.apache.logging.log4j:log4j-core", "2.14.1")
-    assert vulns.query_for(["go-module", "stdlib", "go1.22.2"], None) == ("Go", "stdlib", "1.22.2")
-    assert vulns.query_for(["rpm", "x", "1"], "rhel:9") is None
-
-
-def test_vuln_watch_quarantine_and_release(monkeypatch):
-    from app import vulns
-    from app.models import Alert, InventoryTarget, Quarantine, VulnFinding
-    log4j = ("Maven", "org.apache.logging.log4j:log4j-core", "2.14.1")
-    django = ("PyPI", "django", "4.2.0")
-    osv = {log4j: [{"id": "GHSA-log4j"}], django: [{"id": "GHSA-django"}, {"id": "PYSEC-django"}],
-           ("Debian:12", "openssl", "3.0.11"): [{"id": "DEBIAN-CVE-x"}]}
-    db, a, calls, hosts = _vuln_env(monkeypatch, osv)
-    vulns.ingest(db, a, {"complete": True, "targets": [
-        {"key": "image:abc", "image": "myapp:latest", "distro": "debian:12", "scanner": "syft",
-         "containers": [{"name": "myapp", "ports": "0.0.0.0:8080->8000/tcp"}],
-         "packages": [["java-archive", "log4j-core", "2.14.1", "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"],
-                      ["python", "django", "4.2.0"], ["deb", "openssl", "3.0.11"], ["binary", "node", "20.10.0"]]},
-        {"key": "host", "distro": "debian:12", "packages": [["deb", "openssl", "3.0.11"]]}]})
-    vulns.run(db)
-    t = db.query(InventoryTarget).filter_by(key="image:abc").one()
-    fs = {f.vuln_id for f in db.query(VulnFinding).filter_by(target_id=t.id)}
-    assert {"GHSA-log4j", "GHSA-django", "DEBIAN-CVE-x", "EOL-nodejs-20", "RUNTIME-nodejs-20.10.0"} <= fs
-    assert "PYSEC-django" not in fs  # gleiche CVE nur einmal
-    # app.example.de gesperrt, NetworkHelper selbst nicht, intern hat schon eine Zugriffsliste
-    assert ("set", 1, 42) in calls and not any(c[0] == "set" and c[1] in (2, 3) for c in calls)
-    assert "192.168.0.0/16" in calls[0][1]
-    alert = db.query(Alert).filter(Alert.kind == "vuln", Alert.severity == "crit").one()
-    assert "app.example.de" in alert.title and "WIRD AUSGENUTZT" in alert.body and "NetworkHelper selbst" in alert.body
-    q = db.query(Quarantine).one()
-    assert q.prev_access_list_id == 0 and q.released_at is None
-    # erneuter Lauf: keine zweite Sperre, keine zweite Meldung
-    vulns.run(db)
-    assert db.query(Quarantine).count() == 1
-    # Update eingespielt: log4j weg -> automatisch freigeben
-    del osv[log4j]
-    vulns.ingest(db, a, {"complete": True, "targets": [
-        {"key": "image:abc", "image": "myapp:latest", "distro": "debian:12", "containers": [{"name": "myapp", "ports": "0.0.0.0:8080->8000/tcp"}],
-         "packages": [["python", "django", "4.2.0"], ["deb", "openssl", "3.0.11"]]}]})
-    vulns.run(db)
-    db.refresh(q)
-    assert q.released_at is not None and ("set", 1, 0) in calls
-    assert db.query(InventoryTarget).count() == 1  # host fehlte in der vollständigen Meldung
-    ov = vulns.overview(db)
-    item = ov["items"][0]
-    assert item["exposed"] and item["services"][0]["domains"] == ["app.example.de"]
-    assert item["findings"][0]["vuln"] == "GHSA-django" and item["findings"][0]["fixed"] == "4.2.11"
-
-
 def test_push_ntfy(monkeypatch):
     import httpx
     from app import notify
@@ -568,50 +470,10 @@ def test_push_ntfy(monkeypatch):
     monkeypatch.setattr(settings, "ntfy_topic", "nh-test")
     monkeypatch.setattr(settings, "ntfy_token", "tk_x")
     monkeypatch.setattr(httpx, "post", lambda url, json=None, headers=None, timeout=None: sent.append((url, json, headers)) or httpx.Response(200, request=httpx.Request("POST", url)))
-    notify.push("Titel ä", "Text", "crit", "vuln")
+    notify.push("Titel ä", "Text", "crit", "apps")
     url, body, headers = sent[0]
     assert url == "https://ntfy.sh" and body["topic"] == "nh-test" and body["priority"] == 5
-    assert body["click"].endswith("/security?tab=vulns") and headers["Authorization"] == "Bearer tk_x"
-
-
-def test_vuln_remedy_and_auto_fix(monkeypatch):
-    from app import vulns
-    from app.config import settings
-    from app.models import Alert, InventoryTarget, VulnAction
-    log4j = ("Maven", "org.apache.logging.log4j:log4j-core", "2.14.1")
-    osv = {log4j: [{"id": "GHSA-log4j"}], ("Debian:12", "openssl", "3.0.11"): [{"id": "DEBIAN-CVE-x"}]}
-    db, a, calls, hosts = _vuln_env(monkeypatch, osv)
-    monkeypatch.setattr(settings, "vuln_auto_fix", "critical")
-    a.allow_updates = True
-    db.commit()
-    comp = {"project": "app", "service": "web", "dir": "/opt/app", "files": "/opt/app/compose.yml"}
-    vulns.ingest(db, a, {"complete": True, "targets": [
-        {"key": "image:abc", "image": "ghcr.io/x/app:latest", "distro": "debian:12",
-         "containers": [{"name": "app-web-1", "ports": "0.0.0.0:8080->8000/tcp", "compose": comp}],
-         "packages": [["java-archive", "log4j-core", "2.14.1", "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"]]},
-        {"key": "image:def", "image": "ghcr.io/x/pinned:1.2.3", "distro": "debian:12",
-         "containers": [{"name": "pinned", "ports": "", "compose": {**comp, "service": "pinned"}}],
-         "packages": [["java-archive", "log4j-core", "2.14.1", "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"]]},
-        {"key": "host", "distro": "debian:12", "packages": [["deb", "openssl", "3.0.11"]]}]})
-    vulns.run(db)
-    acts = db.query(VulnAction).all()
-    assert [(x.kind, x.auto) for x in acts] == [("container_update", True)]  # festes Tag: kein automatisches Update
-    assert "versucht jetzt" in db.query(Alert).filter(Alert.kind == "vuln", Alert.severity == "crit").first().body
-    pinned = db.query(InventoryTarget).filter_by(key="image:def").one()
-    plan = vulns.remedy(pinned, pinned and db.query(vulns.VulnFinding).filter_by(target_id=pinned.id).all(), a)
-    assert plan["action"] is None and "feste Version" in plan["steps"][0]["text"]
-    host = db.query(InventoryTarget).filter_by(key="host").one()
-    plan = vulns.remedy(host, db.query(vulns.VulnFinding).filter_by(target_id=host.id).all(), a)
-    assert plan["action"] is None and plan["no_fix"]  # Debian-Lücke ohne Korrektur
-    sent = vulns.pending_actions(db, a)
-    assert sent == [{"id": acts[0].id, "kind": "container_update", "container": "app-web-1"}]
-    assert vulns.pending_actions(db, a) == sent  # bis zum Ergebnis erneut zustellen (Agent ignoriert Doppelte)
-    vulns.action_result(db, a, {"id": acts[0].id, "status": "no_update", "log": "Es gibt kein neueres Image"})
-    db.refresh(acts[0])
-    assert acts[0].status == "no_update" and acts[0].finished_at
-    assert db.query(Alert).filter(Alert.title.like("Kein Update verfügbar%")).count() == 1
-    vulns.run(db)  # innerhalb von 24 h kein zweiter automatischer Versuch
-    assert db.query(VulnAction).count() == 1
+    assert body["click"].endswith("/security?tab=apps") and headers["Authorization"] == "Bearer tk_x"
 
 
 def test_update_watch_pushes_once(monkeypatch):
@@ -632,3 +494,27 @@ def test_update_watch_pushes_once(monkeypatch):
     alerts = db.query(Alert).filter(Alert.kind == "update").all()
     assert len(alerts) == 1 and alerts[0].title.startswith("Sicherheitsupdate") and "pyjwt" in alerts[0].body
     assert len(sent) == 1  # nur einmal pro neuer Version
+
+
+def test_unquarantine_releases_everything(monkeypatch):
+    from app import npm, unquarantine
+    from app.models import Alert, Quarantine
+    db = _db_with_ip()
+    db.add(Quarantine(proxy_host_id=1, domains="app.example.de", reason="x", finding_ids="[]", prev_access_list_id=3))
+    db.add(Quarantine(proxy_host_id=2, domains="alt.example.de", reason="x", finding_ids="[]", prev_access_list_id=0))
+    db.commit()
+    hosts = [{"id": 1, "domains": ["app.example.de"], "access_list_id": 42}, {"id": 2, "domains": ["alt.example.de"], "access_list_id": 5},
+             {"id": 3, "domains": ["ohne.example.de"], "access_list_id": 42}]
+    calls = []
+    monkeypatch.setattr(npm, "configured", lambda: True)
+    monkeypatch.setattr(npm, "raw_proxy_hosts", lambda: hosts)
+    monkeypatch.setattr(npm, "find_access_list", lambda name: 42)
+    monkeypatch.setattr(npm, "set_access_list", lambda hid, lid: calls.append((hid, lid)))
+    monkeypatch.setattr(npm, "delete_access_list", lambda lid: calls.append(("del", lid)))
+    res = unquarantine.run(db)
+    # Host 1: alte Liste zurück; Host 2 trägt schon eine andere Liste (von Hand geändert) -> unberührt;
+    # Host 3 trug die Sperrliste ohne Eintrag -> öffentlich; danach Liste löschen
+    assert calls == [(1, 3), (3, 0), ("del", 42)] and res["done"]
+    assert all(q.released_at for q in db.query(Quarantine))
+    assert db.query(Alert).filter(Alert.title.like("Wieder erreichbar%")).count() == 1
+    assert unquarantine.run(db) == {"done": True}

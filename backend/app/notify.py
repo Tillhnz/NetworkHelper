@@ -53,7 +53,7 @@ def raise_alert(db: Session, severity: str, kind: str, title: str, body: str = "
 
 PRIORITY = {"info": 3, "warn": 4, "crit": 5}
 TAGS = {"info": ["information_source"], "warn": ["warning"], "crit": ["rotating_light"]}
-LINKS = {"vuln": "/security?tab=vulns", "proxmox": "/security?tab=proxmox", "adguard": "/dns?tab=adguard",
+LINKS = {"apps": "/security?tab=apps", "proxmox": "/security?tab=proxmox", "adguard": "/dns?tab=adguard",
          "cert": "/security?tab=sites", "uptime": "/uptime", "update": "/admin"}
 
 

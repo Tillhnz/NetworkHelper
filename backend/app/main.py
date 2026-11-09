@@ -19,6 +19,8 @@ async def lifespan(app: FastAPI):
         logging.getLogger("networkhelper").warning("SECRET_KEY ist unsicher. Setze einen langen Zufallswert (openssl rand -hex 32).")
     Base.metadata.create_all(engine)
     ensure_columns()
+    from . import unquarantine
+    unquarantine.drop_old_tables()  # Reste des früheren Lückenwächters
     with SessionLocal() as db:
         server_settings.apply_overrides(db)
     geoip.reload()

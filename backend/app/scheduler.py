@@ -10,7 +10,7 @@ from typing import Callable
 
 from sqlalchemy import delete, select
 
-from . import adguard, appversions, certs, proxmox, updatewatch, vulns, detect, dns, domainguard, exposure, geoblock, report, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
+from . import adguard, appversions, certs, proxmox, unquarantine, updatewatch, detect, dns, domainguard, exposure, geoblock, report, geoip, notify, npm, porkbun, portscan, sitecheck, uptime
 from .config import settings
 from .database import SessionLocal
 from .models import AccessEvent, Agent, Alert, DynRecord, Incident, MonitorResult
@@ -55,14 +55,10 @@ def _maintenance(db) -> None:
     db.execute(delete(MonitorResult).where(MonitorResult.ts < now - timedelta(days=90)))
     db.execute(delete(Alert).where(Alert.created_at < now - timedelta(days=90)))
     db.execute(delete(Incident).where(Incident.last_seen < now - timedelta(days=180)))
-    from .models import AuditEntry, Quarantine, Vuln, VulnAction, VulnFinding, WatchEvent
+    from .models import AuditEntry, Quarantine, WatchEvent
     db.execute(delete(WatchEvent).where(WatchEvent.ts < now - timedelta(days=90)))
     db.execute(delete(AuditEntry).where(AuditEntry.at < now - timedelta(days=365)))
-    db.execute(delete(VulnAction).where(VulnAction.created_at < now - timedelta(days=180)))
     db.execute(delete(Quarantine).where(Quarantine.released_at < now - timedelta(days=365)))
-    db.execute(delete(VulnFinding).where(VulnFinding.resolved_at < now - timedelta(days=90)))
-    used = select(VulnFinding.vuln_id)
-    db.execute(delete(Vuln).where(Vuln.fetched_at < now - timedelta(days=30), Vuln.id.not_in(used)))
     db.commit()
     detect.prune_blocks(db)
     geoip.refresh_if_old()
@@ -106,7 +102,7 @@ SLOW = [
 ]
 # Lange Prüfungen mit vielen Abrufen im Internet laufen getrennt, damit sie nichts anderes aufhalten
 HEAVY = [
-    Job("vulns", vulns.run, lambda: 2 * 3600, lambda: settings.vuln_watch, delay=150),
+    Job("unquarantine", unquarantine.run, lambda: 600, lambda: True, delay=20),
     Job("appversions", appversions.run, lambda: 12 * 3600, lambda: settings.app_check_enabled, delay=300),
     Job("exposure", exposure.run, lambda: settings.exposure_interval_h * 3600, lambda: settings.exposure_enabled, delay=240),
     Job("portscan", portscan.run, lambda: settings.scan_interval_h * 3600, lambda: settings.scan_enabled, delay=180),

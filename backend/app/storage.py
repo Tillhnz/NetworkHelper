@@ -15,8 +15,8 @@ log = logging.getLogger("networkhelper.storage")
 LABELS = {
     "access_events": "Zugriffe (Protokoll des Proxy Managers)", "monitor_results": "Erreichbarkeit (Messwerte)",
     "watch_events": "Wachsamkeit (Anmeldungen, Dateien)", "inventory_targets": "Inventur (Paketlisten)",
-    "vulns": "Lückendatenbank (Zwischenspeicher)", "alerts": "Meldungen", "kv_state": "Zwischenstände",
-    "agents": "Agenten", "vuln_findings": "Gefundene Lücken", "watch_state": "Wachsamkeit (Stand)", "audit_log": "Änderungsprotokoll", "incidents": "Vorfälle",
+"alerts": "Meldungen", "kv_state": "Zwischenstände",
+    "agents": "Agenten", "watch_state": "Wachsamkeit (Stand)", "audit_log": "Änderungsprotokoll", "incidents": "Vorfälle",
 }
 job = {"running": False, "started": None, "finished": None, "freed": None, "error": None}
 
@@ -47,7 +47,7 @@ def _vacuum_full():
         before = db_usage()["total"]
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as c:
             if is_pg():
-                for t in ("access_events", "monitor_results", "watch_events", "alerts", "inventory_targets", "vulns", "kv_state"):
+                for t in ("access_events", "monitor_results", "watch_events", "alerts", "kv_state"):
                     try:
                         c.execute(text(f'VACUUM (FULL, ANALYZE) "{t}"'))
                     except Exception as e:  # noqa: BLE001 - Tabelle fehlt o. ä.

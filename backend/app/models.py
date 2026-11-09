@@ -88,7 +88,6 @@ class Agent(Base):
     block_status: Mapped[str | None] = mapped_column(String(300), nullable=True)
     lines_total: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     parse_errors: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    allow_updates: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     fail2ban: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: Status und Sperren von fail2ban
 
 
@@ -315,59 +314,8 @@ class Alert(Base):
     read: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
-
-class InventoryTarget(Base):
-    """Was in einem Container-Image oder auf einem Server installiert ist (vom Agenten gemeldet)."""
-    __tablename__ = "inventory_targets"
-    __table_args__ = (UniqueConstraint("agent_id", "key"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
-    key: Mapped[str] = mapped_column(String(120))  # host | image:<sha256>
-    image: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    containers: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: [{name, ports}]
-    distro: Mapped[str | None] = mapped_column(String(60), nullable=True)  # debian:12, alpine:3.20, ubuntu:24.04
-    packages: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: [[typ, name, version, purl?]]
-    package_count: Mapped[int] = mapped_column(Integer, default=0)
-    scanner: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    scanned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    error: Mapped[str | None] = mapped_column(String(300), nullable=True)
-
-
-class Vuln(Base):
-    """Zwischenspeicher für Lücken aus OSV.dev."""
-    __tablename__ = "vulns"
-
-    id: Mapped[str] = mapped_column(String(80), primary_key=True)
-    summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    aliases: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
-    score: Mapped[float | None] = mapped_column(nullable=True)
-    kev: Mapped[bool] = mapped_column(Boolean, default=False)
-    published: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    url: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    affected: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: {paketname: [behoben in …]}
-    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-
-class VulnFinding(Base):
-    __tablename__ = "vuln_findings"
-    __table_args__ = (UniqueConstraint("target_id", "vuln_id", "package"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    target_id: Mapped[int] = mapped_column(ForeignKey("inventory_targets.id", ondelete="CASCADE"), index=True)
-    vuln_id: Mapped[str] = mapped_column(String(80))
-    ecosystem: Mapped[str] = mapped_column(String(40))
-    package: Mapped[str] = mapped_column(String(200))
-    version: Mapped[str] = mapped_column(String(100))
-    fixed: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    accepted: Mapped[bool] = mapped_column(Boolean, default=False)  # „Risiko bewusst hingenommen“
-    notified: Mapped[bool] = mapped_column(Boolean, default=False)
-
-
 class Quarantine(Base):
-    """Ein Dienst, der wegen einer Lücke nur noch aus dem Heimnetz erreichbar ist."""
+    """Früher: Dienst wegen einer Lücke auf „nur Heimnetz“ gestellt. Bleibt nur, damit der Rückbau Sperren aufhebt."""
     __tablename__ = "quarantines"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -381,21 +329,3 @@ class Quarantine(Base):
     released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     released_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
     error: Mapped[str | None] = mapped_column(String(300), nullable=True)
-
-
-class VulnAction(Base):
-    """Ein Update, das ein Agent ausführen soll, um Lücken zu schließen."""
-    __tablename__ = "vuln_actions"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
-    target_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    kind: Mapped[str] = mapped_column(String(30))  # container_update | host_packages
-    params: Mapped[str] = mapped_column(Text)  # JSON
-    label: Mapped[str] = mapped_column(String(300))
-    status: Mapped[str] = mapped_column(String(20), default="queued")  # queued, sent, running, ok, no_update, rolled_back, failed, manual
-    log: Mapped[str | None] = mapped_column(Text, nullable=True)
-    auto: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
