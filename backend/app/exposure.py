@@ -155,6 +155,19 @@ class Fetcher:
             return {"status": None, "raw": b"", "text": "", "ctype": "", "location": "", "error": e.__class__.__name__}
 
 
+ASSET_TYPES = ("image/", "font/", "audio/", "video/", "text/css", "application/javascript", "text/javascript",
+               "application/font", "application/x-font", "application/wasm")
+_MAGIC = (b"\x89PNG", b"\xff\xd8\xff", b"GIF8", b"RIFF", b"wOFF", b"wOF2", b"\x00\x00\x01\x00", b"<svg")
+
+
+def _is_asset(res: dict) -> bool:
+    """Öffentliche Bausteine einer Web-App (Icons, Schriften, Skripte) verraten nichts, sind also kein Fund."""
+    ctype = (res.get("ctype") or "").lower().split(";")[0].strip()
+    if ctype == "image/svg+xml":
+        return b"<script" not in res["raw"][:20000].lower()
+    return ctype.startswith(ASSET_TYPES) or res["raw"][:4].startswith(_MAGIC)
+
+
 def verdict(res: dict, probe: Probe | None, baseline: tuple[str, int] | None) -> tuple[str, str]:
     """(Ergebnis, Erklärung). Ergebnis: exposed | unclear | catchall | protected | missing | redirect | error"""
     st = res["status"]
@@ -177,6 +190,8 @@ def verdict(res: dict, probe: Probe | None, baseline: tuple[str, int] | None) ->
         return "catchall", "Liefert eine Webseite der App, keine Datei"
     if probe:
         return "catchall", "Inhalt passt nicht zu einer echten Datei dieser Art"
+    if _is_asset(res):
+        return "catchall", "Bild, Schrift oder Skript der App (keine Daten)"
     return "unclear", f"Liefert {len(res['raw'])} Bytes ({res['ctype'] or 'ohne Typ'}). Bitte selbst ansehen"
 
 
