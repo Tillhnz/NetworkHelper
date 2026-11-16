@@ -1,5 +1,5 @@
 # Gebaut mit dem Projektordner als Kontext (siehe docker-compose.yml), damit die Agent-Dateien mit ins Image kommen
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
