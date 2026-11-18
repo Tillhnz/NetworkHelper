@@ -5,7 +5,8 @@ Umsetzung im Nginx Proxy Manager über den Agenten (nur wenn dort „Sperrliste 
   nginx durchsucht solche Tabellen als Baum, das kostet auch bei Hunderttausenden Einträgen kaum Zeit.
 - Eine map entscheidet je Hostname und Land, ob gesperrt wird.
 - In jedem Proxy Host (custom/server_proxy.conf) wird dann mit 444 (Verbindung ohne Antwort schließen) abgewiesen.
-  Let's Encrypt (/.well-known/acme-challenge/) und das eigene Heimnetz bleiben immer erlaubt.
+  Let's Encrypt (/.well-known/acme-challenge/) und das eigene Heimnetz bleiben immer erlaubt,
+  ebenso die Adressbereiche aus der Einstellung geo_allow (z. B. die Server von Claude/Anthropic).
 """
 from __future__ import annotations
 
@@ -154,6 +155,39 @@ def _host_re(host: str) -> str:
     return re.escape(host.lower()).replace("\\-", "-")
 
 
+# ---------- Immer erlaubte Adressbereiche ----------
+
+def allow_networks() -> list[str]:
+    """Bereiche, die weder Länder- noch Listen-Sperren treffen (Einstellung geo_allow)."""
+    out = []
+    for item in re.split(r"[\s,;]+", settings.geo_allow or ""):
+        if not item:
+            continue
+        try:
+            out.append(str(ipaddress.ip_network(item, strict=False)))
+        except ValueError:
+            continue
+    return out
+
+
+def _outside(nets: list[str], allow: list[str]) -> list[str]:
+    """Bereiche, die ganz in einem erlaubten Bereich liegen, weglassen.
+
+    nginx nimmt in geo-Tabellen den kleinsten passenden Bereich. Ein kleinerer Länder- oder Listenbereich innerhalb
+    eines erlaubten Bereichs würde die Ausnahme sonst wieder aufheben.
+    """
+    if not allow:
+        return nets
+    ok = [ipaddress.ip_network(a) for a in allow]
+    out = []
+    for n in nets:
+        net = ipaddress.ip_network(n, strict=False)
+        if any(net.version == a.version and net.subnet_of(a) for a in ok):
+            continue
+        out.append(n)
+    return out
+
+
 # ---------- Konfiguration für nginx ----------
 
 def _inputs(db: Session):
@@ -173,21 +207,28 @@ def http_conf(db: Session) -> str:
     countries = set()
     for r in rules:
         countries.update(parse_countries(r.countries))
-    key = (tuple((r.host, r.countries) for r in rules), hashlib.sha1("\n".join(feeds).encode()).hexdigest(), own_ip,
+    allow = allow_networks()
+    key = (tuple((r.host, r.countries) for r in rules), hashlib.sha1("\n".join(feeds).encode()).hexdigest(), own_ip, tuple(allow),
            os.path.getmtime(geoip._path("country")) if countries and os.path.exists(geoip._path("country")) else 0)
     with _lock:
         if _cache["key"] == key and _cache["text"] is not None:
             return _cache["text"]
     lines = [f"# Von NetworkHelper erzeugt am {datetime.utcnow():%Y-%m-%d %H:%M} UTC. Wird überschrieben.",
              "# Länderdaten: IP Geolocation by DB-IP (CC BY 4.0)", "", "geo $nh_feed_deny {", "    default 0;"]
-    lines += [f"    {n} 1;" for n in feeds]
+    lines += [f"    {n} 1;" for n in _outside(feeds, allow)]
+    if allow:
+        lines.append("    # immer erlaubt (Einstellung „Immer erlaubte Adressbereiche“)")
+        lines += [f"    {n} 0;" for n in allow]
     lines += ["}", "", "geo $nh_cc {", "    default ZZ;"]
     lines += [f"    {n} LAN;" for n in LAN_NETS]
     if own_ip:
         lines.append(f"    {own_ip} LAN;")
     if countries:
         for cc, nets in sorted(country_networks(countries).items()):
-            lines += [f"    {n} {cc};" for n in nets]
+            lines += [f"    {n} {cc};" for n in _outside(nets, allow)]
+    if allow:
+        lines.append("    # immer erlaubt (Einstellung „Immer erlaubte Adressbereiche“)")
+        lines += [f"    {n} LAN;" for n in allow]
     lines += ["}", "", 'map "$host|$nh_cc" $nh_geo_deny {', "    default 0;"]
     wildcard = None
     for r in rules:

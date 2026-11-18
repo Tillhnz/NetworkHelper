@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     fail2ban_share: bool = True  # was fail2ban auf einem Server sperrt, sperrt NetworkHelper überall (24 Std.)
     feed_spamhaus: bool = False  # Spamhaus DROP sperren (über den Agenten)
     feed_firehol: bool = False  # FireHOL Level 1 sperren
+    geo_allow: str = ""  # Adressbereiche, die Länder- und Listen-Sperren nie treffen (z. B. 160.79.104.0/21 für Claude)
     weekly_report: bool = True
     weekly_report_day: int = 0  # 0 = Montag
     weekly_report_hour: int = 8  # Ortszeit

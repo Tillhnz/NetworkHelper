@@ -37,6 +37,47 @@ function CountryEditor({ value, onChange }) {
   );
 }
 
+const ALLOW_PRESETS = [
+  { label: "Claude (Anthropic)", cidrs: ["160.79.104.0/21"], hint: "Für Claude-Connectors, z. B. den MCP-Server in Home Assistant" },
+];
+
+function AllowList({ value, isAdmin, onSaved }) {
+  const [text, setText] = useState(value);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setText(value); }, [value]);
+  const items = (t) => t.split(/[\s,;]+/).filter(Boolean);
+  async function save(next) {
+    setBusy(true);
+    try {
+      await api.put("/admin/settings", { values: { geo_allow: next } });
+      toast("Gespeichert. Der Agent setzt es innerhalb einer Minute um.");
+      onSaved();
+    } catch (e) { toast(e.message, "error"); } finally { setBusy(false); }
+  }
+  return (
+    <section className="panel">
+      <h2>Immer erlaubte Adressbereiche</h2>
+      <p className="muted small">Diese Adressen werden weder von Ländersperren noch von Sperrlisten abgewiesen, egal wo sie stehen. Gedacht für Dienste, die von außen zugreifen müssen, etwa Claude, das aus den USA auf deinen Home-Assistant-MCP-Server zugreift. Die Anmeldung der jeweiligen App schützt weiterhin.</p>
+      {isAdmin ? (
+        <>
+          <div className="inline-form">
+            <label className="grow">Bereiche (z. B. 160.79.104.0/21), mit Komma oder Leerzeichen getrennt
+              <input value={text} onChange={(e) => setText(e.target.value)} placeholder="leer = keine Ausnahmen" maxLength={2000} />
+            </label>
+            <button type="button" className="btn primary" disabled={busy || text.trim() === value.trim()} onClick={() => save(text)}>Speichern</button>
+          </div>
+          <div className="actions">
+            {ALLOW_PRESETS.map((p) => (
+              <button type="button" key={p.label} className="link small" title={p.hint}
+                onClick={() => setText([...new Set([...items(text), ...p.cidrs])].join(", "))}>+ {p.label}</button>
+            ))}
+          </div>
+        </>
+      ) : <p className="small mono">{value || "keine"}</p>}
+    </section>
+  );
+}
+
 function Preview({ p }) {
   if (!p) return null;
   return (
@@ -137,6 +178,8 @@ export default function Geo({ isAdmin }) {
         )}
         {!d.geoip && <p className="small tone-warn">Die Standort-Datenbank ist ausgeschaltet (Administration → Allgemein). Ohne sie können Länder nicht erkannt werden.</p>}
       </section>
+
+      <AllowList value={d.allow || ""} isAdmin={isAdmin} onSaved={load} />
 
       <section className="panel">
         <h2>Öffentliche Sperrlisten</h2>
