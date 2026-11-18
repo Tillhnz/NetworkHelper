@@ -307,7 +307,8 @@ def geo_status(user: User = Depends(current_user), db: Session = Depends(get_db)
                       "count": len(st.get("nets", [])), "fetched": st.get("fetched"), "errors": st.get("errors", [])})
     hosts = list(db.scalars(select(SiteCheck.host).order_by(SiteCheck.host)))
     return {"rules": [_rule_out(r) for r in rules], "feeds": feeds, "agents": agents, "hosts": hosts,
-            "geoip": bool(settings.geoip_enabled), "running": scheduler.JOBS["feeds"].running}
+            "geoip": bool(settings.geoip_enabled), "running": scheduler.JOBS["feeds"].running,
+            "allow": settings.geo_allow or ""}
 
 
 class GeoRuleIn(BaseModel):

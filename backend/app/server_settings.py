@@ -78,6 +78,7 @@ FIELDS: dict[str, tuple[str, str, bool]] = {
     "fail2ban_share": ("bool", "security", False),
     "feed_spamhaus": ("bool", "security", False),
     "feed_firehol": ("bool", "security", False),
+    "geo_allow": ("cidrs", "security", False),
     "weekly_report": ("bool", "email", False),
     "weekly_report_day": ("int:0:6", "email", False),
     "weekly_report_hour": ("int:0:23", "email", False),
@@ -132,6 +133,23 @@ def normalize_origins(text: str) -> str:
     if len(out) > 10:
         raise SettingError("Höchstens 10 Adressen")
     return " ".join(out)
+
+
+def normalize_cidrs(text: str) -> str:
+    """Adressbereiche wie 160.79.104.0/21 oder einzelne Adressen. Sehr große Bereiche werden abgelehnt."""
+    out: list[str] = []
+    for item in _split(text):
+        try:
+            net = ipaddress.ip_network(item, strict=False)
+        except ValueError:
+            raise SettingError(f"„{item}“ ist kein Adressbereich wie 160.79.104.0/21 oder eine einzelne Adresse")
+        if net.prefixlen < (16 if net.version == 4 else 32):
+            raise SettingError(f"„{item}“ ist zu groß (höchstens /16 bei IPv4, /32 bei IPv6)")
+        if str(net) not in out:
+            out.append(str(net))
+    if len(out) > 50:
+        raise SettingError("Höchstens 50 Bereiche")
+    return ", ".join(out)
 
 
 def coerce(key: str, raw):
@@ -200,6 +218,8 @@ def coerce(key: str, raw):
         if bad:
             raise SettingError(f"Keine gültige Domain: {bad[0]}")
         return ", ".join(dict.fromkeys(items))
+    if base == "cidrs":
+        return normalize_cidrs(text)
     if base == "hosts":
         items = _split(text)
         for h in items:

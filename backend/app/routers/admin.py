@@ -162,10 +162,11 @@ def save_settings(data: SettingsIn, admin: User = Depends(require_admin), db: Se
     if ("geoip_enabled" in data.values or "geoip_city" in data.values) and settings.geoip_enabled:
         geoip.reload()  # Städte aus- oder einschalten wirkt sofort
         scheduler.trigger("maintenance")
-    if any(k.startswith("feed_") for k in data.values):
+    if any(k.startswith("feed_") or k == "geo_allow" for k in data.values):
         from .. import geoblock
         geoblock.invalidate()
-        scheduler.trigger("feeds")
+        if any(k.startswith("feed_") for k in data.values):
+            scheduler.trigger("feeds")
     if any(k.startswith("npm_") for k in data.values) and npm.configured():
         scheduler.trigger("npm_sync")
     return _settings_payload(db)

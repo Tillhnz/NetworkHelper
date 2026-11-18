@@ -182,6 +182,21 @@ def test_geoblock_helpers():
                                     own_ip="84.130.20.50")
     assert clean == ["1.10.16.0/20", "2a00:1::/32"]  # privat, zu groß, eigene Adresse raus; Überlappung zusammengefasst
     assert geoblock.parse_countries("de, at;CH x DE") == ["DE", "AT", "CH"]
+    # Immer erlaubte Bereiche: alles, was ganz darin liegt, fällt aus Länder- und Listentabellen heraus
+    assert geoblock._outside(["160.79.104.0/22", "160.79.0.0/16", "1.2.3.0/24"], ["160.79.104.0/21"]) == ["160.79.0.0/16", "1.2.3.0/24"]
+    assert geoblock._outside(["1.2.3.0/24"], []) == ["1.2.3.0/24"]
+
+
+def test_geo_allow_setting():
+    from app import server_settings as ss
+    assert ss.coerce("geo_allow", "160.79.104.0/21, 160.79.104.5 160.79.104.0/21") == "160.79.104.0/21, 160.79.104.5/32"
+    assert ss.coerce("geo_allow", "") == ""
+    for bad in ("kein-netz", "10.0.0.0/8"):
+        try:
+            ss.coerce("geo_allow", bad)
+        except ss.SettingError:
+            continue
+        raise AssertionError(bad)
 
 
 def test_domainguard_analyze():
