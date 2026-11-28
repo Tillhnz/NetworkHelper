@@ -203,9 +203,12 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
 
     blocked_now: dict[str, BlockEntry] = {}
     if settings.auto_block:
+        from . import trusted
+        trust = trusted.active(db)
         for inc in touched.values():
             serious = inc.severity == "crit" or (inc.kind in ("scanner", "badagent") and inc.severity == "warn")
-            if serious and inc.ip not in blocked_now and not is_blocked(db, inc.ip) and not publicip.is_own(periods, inc.ip, now):
+            if serious and inc.ip not in blocked_now and not is_blocked(db, inc.ip) and not publicip.is_own(periods, inc.ip, now) \
+                    and inc.ip not in trust:
                 blocked_now[inc.ip] = add_block(db, inc.ip, f"Automatisch: {KIND_TEXT[inc.kind]}", hours=settings.auto_block_hours,
                                                 by="automatisch", auto=True)
     for inc in changed:

@@ -399,6 +399,25 @@ def fail2ban_unban(data: UnbanIn, admin: User = Depends(require_admin), db: Sess
     return res
 
 
+@router.post("/trust")
+def trust_ip(data: UnbanIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """„Das war ich“: überall entsperren und 24 Stunden lang nicht wieder sperren."""
+    from .. import trusted
+    try:
+        res = fail2ban.request_unban(db, data.ip)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    res["trusted_until"] = trusted.add(db, res["ip"])
+    audit.record(db, admin.email, "block.trust", res["ip"])
+    return res
+
+
+@router.get("/trusted")
+def trusted_list(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from .. import trusted
+    return [{"ip": ip, "until": until} for ip, until in sorted(trusted.active(db).items())]
+
+
 @router.get("/certificates")
 def certificates(user: User = Depends(current_user), db: Session = Depends(get_db)):
     try:

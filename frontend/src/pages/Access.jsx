@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { trustIp } from "../components/trustIp.js";
 import { useSearchParams } from "react-router-dom";
 import { api, countryName, fmtAgo, fmtBytes, fmtCompact, fmtDate, fmtDateTime, fmtNum, fmtTime, KIND_TEXT, qs, STATUS_CLASS, statusLabel, statusText, statusTone } from "../api.js";
 import { HBars, Legend, TrafficBars } from "../components/charts.jsx";
@@ -56,6 +57,7 @@ export function IpDetail({ ip, onClose, onFilter, isAdmin }) {
               </>
             )}
             {isAdmin && d.blocked && <button className="btn" onClick={unblock}>Sperre aufheben</button>}
+            {isAdmin && d.scope === "public" && (d.blocked || d.incidents?.length > 0) && <button className="btn" onClick={async () => { if (await trustIp(ip)) load(); }}>Das war ich</button>}
             {d.scope === "public" && <a className="btn" href={`https://www.abuseipdb.com/check/${d.ip}`} target="_blank" rel="noreferrer noopener">AbuseIPDB</a>}
           </div>
           {d.incidents.length > 0 && (

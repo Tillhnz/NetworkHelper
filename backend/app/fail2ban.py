@@ -64,8 +64,10 @@ def load(agent: Agent) -> dict:
 
 def own_ips(db: Session) -> list[str]:
     """Eigene öffentliche IPs (aktuell und in der letzten Woche), die fail2ban nie sperren soll."""
+    from . import trusted
     week = datetime.utcnow() - timedelta(days=7)
-    return sorted({ip for ip, _start, end in publicip.own_periods(db) if end is None or end >= week})
+    own = {ip for ip, _start, end in publicip.own_periods(db) if end is None or end >= week}
+    return sorted(own | set(trusted.active(db)))
 
 
 def ingest(db: Session, agent: Agent, status: dict) -> None:
@@ -77,12 +79,14 @@ def ingest(db: Session, agent: Agent, status: dict) -> None:
         db.commit()
         return
     before = {(j["name"], ip) for j in old.get("jails", []) for ip in j.get("ips", [])}
+    from . import trusted
     periods = publicip.own_periods(db)
+    trust = trusted.active(db)
     for j in new["jails"]:
         if j["name"] == SYNC_JAIL:
             continue  # stammt von NetworkHelper selbst
         for ip in j["ips"]:
-            if (j["name"], ip) in before or classify(ip) != "public" or publicip.is_own(periods, ip):
+            if (j["name"], ip) in before or classify(ip) != "public" or publicip.is_own(periods, ip) or ip in trust:
                 continue
             if detect.is_blocked(db, ip):
                 continue

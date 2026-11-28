@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { trustIp } from "./trustIp.js";
 import { api, fmtAgo, fmtNum } from "../api.js";
 import { confirmDialog, Loading, toast } from "./feedback.jsx";
 import { CopyLine, Country, Pill } from "./ui.jsx";
@@ -73,6 +74,7 @@ export function Fail2banList({ isAdmin, onIp }) {
                           {i.country ? <Country code={i.country} org={i.as_org} compact /> : <span className="country" title="Land unbekannt" aria-hidden="true">🌐</span>}
                           <button className="linklike mono" onClick={() => onIp?.(i.ip)}>{i.ip}</button>
                           <span className="muted small grow">{(i.as_org || "").slice(0, 32)}</span>
+                          {isAdmin && <button className="link small" onClick={async () => { if (await trustIp(i.ip)) setTimeout(load, 2000); }}>Das war ich</button>}
                           {isAdmin && <button className="link small" onClick={() => unban(i.ip)}>Entsperren</button>}
                         </li>
                       ))}

@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { trustIp } from "../components/trustIp.js";
 import { useSearchParams } from "react-router-dom";
 import { api, fmtAgo, fmtDateTime, fmtNum, fmtTime } from "../api.js";
 import { Switch } from "../components/controls.jsx";
@@ -343,7 +344,8 @@ function Blocks({ isAdmin }) {
                   <td className="small">{b.reason || "–"}</td>
                   <td className="small nowrap">{fmtDateTime(b.created_at)}</td>
                   <td className="small nowrap">{b.expires_at ? fmtDateTime(b.expires_at) : "dauerhaft"}</td>
-                  <td>{isAdmin && <button className="link small" onClick={() => remove(b)}>Aufheben</button>}</td>
+                  <td className="nowrap">{isAdmin && !b.cidr.includes("/") && <button className="link small" onClick={async () => { if (await trustIp(b.cidr)) load(); }}>Das war ich</button>}{" "}
+                    {isAdmin && <button className="link small" onClick={() => remove(b)}>Aufheben</button>}</td>
                 </tr>
               ))}
             </tbody>
