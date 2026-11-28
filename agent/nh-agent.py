@@ -30,7 +30,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "1.5.2"
+VERSION = "1.5.3"
 CONFIG = os.environ.get("NH_AGENT_CONFIG", "/etc/networkhelper-agent.json")
 STATE_DIR = os.environ.get("NH_AGENT_STATE", "/var/lib/networkhelper-agent")
 DEFAULTS = {
@@ -626,9 +626,15 @@ class Fail2banSync:
             for name in jails:
                 for ip in own - self.own_ips:
                     f2b_client("set", name, "addignoreip", ip)
-                    if ip in jails[name]["ips"]:
-                        f2b_client("set", name, "unbanip", ip)
             self.own_ips = own
+            f2b_persist_ignore(own)
+        # Jede Runde: eigene Adressen nie gesperrt lassen. Nach einem Neuladen von fail2ban gilt kurz nur die
+        # ignoreip-Liste aus der Datei; was in der Lücke gesperrt wurde, wird hier sofort wieder freigegeben.
+        for name, j in jails.items():
+            for ip in own & set(j.get("ips", [])):
+                f2b_client("set", name, "addignoreip", ip)
+                f2b_client("set", name, "unbanip", ip)
+                log("fail2ban: eigene Adresse %s in %s entsperrt" % (ip, name))
         if F2B_SYNC_JAIL not in jails:
             return
         wanted = {e for e in blocklist or [] if "/" not in e and F2B_IP_RE.match(e)} - own
@@ -637,6 +643,19 @@ class Fail2banSync:
             f2b_client("set", F2B_SYNC_JAIL, "banip", ip)
         for ip in sorted(current - wanted)[:500]:
             f2b_client("set", F2B_SYNC_JAIL, "unbanip", ip)
+
+
+def f2b_persist_ignore(own):
+    """Eigene Adressen auch in die ignoreip-Zeile der Jail-Datei schreiben, damit sie ein Neuladen überstehen."""
+    path = os.path.join(F2B_DIR, F2B_JAIL_FILE)
+    text = read_first(path, None)
+    if not text:
+        return
+    line = "ignoreip = " + F2B_LAN + "".join(" " + ip for ip in sorted(own))
+    new = re.sub(r"(?m)^ignoreip = .*$", line, text)
+    if new != text:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(new)
 
 
 def setup_fail2ban(cfg, remove=False):
