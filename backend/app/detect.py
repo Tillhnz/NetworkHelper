@@ -86,6 +86,12 @@ def add_block(db: Session, cidr: str, reason: str = "", hours: float | None = No
     return row
 
 
+def _session_check(e) -> bool:
+    """Apps (Immich, Home Assistant …) fragen per GET /api/… ab, ob die Anmeldung noch gilt. Ein 401 darauf ist
+    kein Anmeldeversuch, sondern nur „bitte neu anmelden“. Echte Anmeldungen laufen per POST."""
+    return (e.method or "").upper() in ("GET", "HEAD") and (e.path or "").startswith("/api/")
+
+
 def active_blocks(db: Session) -> list[BlockEntry]:
     now = datetime.utcnow()
     return db.scalars(select(BlockEntry).where((BlockEntry.expires_at.is_(None)) | (BlockEntry.expires_at > now)).order_by(BlockEntry.id)).all()
@@ -153,7 +159,7 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
     for i in range(0, len(ips), 500):
         chunk = ips[i:i + 500]
         q = (select(AccessEvent.ip, func.count(),
-                    func.sum(case((AccessEvent.status.in_([401, 403]), 1), else_=0)),
+                    func.sum(case((AccessEvent.status.in_([401, 403]) & ~(AccessEvent.method.in_(["GET", "HEAD"]) & AccessEvent.path.like("/api/%")), 1), else_=0)),
                     func.sum(case((AccessEvent.status == 404, 1), else_=0)))
              .where(AccessEvent.ts >= since, AccessEvent.ip.in_(chunk), AccessEvent.blocked.is_not(True))
              .group_by(AccessEvent.ip))
@@ -182,7 +188,7 @@ def run(db: Session, now: datetime | None = None, limit: int = 50000) -> list[In
             touched[id(inc)] = inc
             if new:
                 changed.append(inc)
-        auth_new = [e for e in evs if e.status in (401, 403)]
+        auth_new = [e for e in evs if e.status in (401, 403) and not _session_check(e)]
         if auth >= 20 and auth_new:
             inc, new = _upsert(db, ip, "bruteforce", "crit", len(auth_new), {e.host for e in auth_new}, sample(auth_new), evs[-1], now)
             touched[id(inc)] = inc

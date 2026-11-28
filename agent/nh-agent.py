@@ -30,7 +30,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 CONFIG = os.environ.get("NH_AGENT_CONFIG", "/etc/networkhelper-agent.json")
 STATE_DIR = os.environ.get("NH_AGENT_STATE", "/var/lib/networkhelper-agent")
 DEFAULTS = {
@@ -476,7 +476,8 @@ F2B_FILTERS = {
         "about": "Viele abgelehnte Anmeldungen (401/403) an deinen Webseiten",
         "body": "[Definition]\n"
                 "failregex = " + F2B_NPM_PREFIX + r'(?:401|403) (?:\S+ )?- ?\S+ \S+ \S+ "[^"]*" \[Client <HOST>\]' + "\n"
-                "ignoreregex =\n"
+                # GET/HEAD auf /api/… sind Sitzungsprüfungen von Apps (Immich, Home Assistant), keine Anmeldeversuche
+                "ignoreregex = " + F2B_NPM_PREFIX + r'(?:401|403) (?:\S+ )?- ?(?:GET|HEAD) \S+ \S+ "/api/' + "\n"
                 "datepattern = ^\\[%%d/%%b/%%Y:%%H:%%M:%%S %%z\\]\n",
     },
     "networkhelper-npm-scan": {
@@ -511,6 +512,23 @@ def f2b_detect(cfg):
         "proxmox": os.path.isdir("/etc/pve"),
         "nft": bool(shutil.which("nft")),
     }
+
+
+def f2b_refresh_filters():
+    """Filter von NetworkHelper auf den Stand dieser Agent-Version bringen (nur wenn fail2ban eingerichtet ist)."""
+    changed = False
+    for name, f in F2B_FILTERS.items():
+        path = os.path.join(F2B_DIR, "filter.d", name + ".conf")
+        if not os.path.exists(path):
+            continue
+        body = "# Von NetworkHelper verwaltet: %s\n%s" % (f["about"], f["body"])
+        if read_first(path, "") != body:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            changed = True
+    if changed:
+        f2b_client("reload", timeout=60)
+        log("fail2ban-Filter aktualisiert")
 
 
 def f2b_jail_config(det, own_ips=()):
@@ -802,6 +820,10 @@ def main():
     auth = AuthWatcher()
     f2b = Fail2banSync(cfg)
     cleanup_retired()
+    try:
+        f2b_refresh_filters()
+    except (OSError, subprocess.SubprocessError) as e:
+        log("fail2ban-Filter nicht aktualisiert: %s" % e)
     next_watch = time.time() + 20
     interval = max(10, int(cfg.get("interval") or 30))
     log("NetworkHelper-Agent %s startet, Server %s, %d Protokolldateien" % (VERSION, cfg["server"], len(tailer.files())))
